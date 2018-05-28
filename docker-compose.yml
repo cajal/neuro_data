@@ -1,0 +1,34 @@
+version: '2'
+services:
+
+  notebook:
+    build: .
+    env_file: .env
+    ports:
+      - "8888:8888"
+    volumes:
+      - $HOME/Dropbox/notebooks/neuro_data:/notebooks
+      - /tmp:/tmp
+      - /tmp/.X11-unix:/tmp/.X11-unix
+      - /home/fabee/code/neuro_data:/src/neuro_data
+      - /mnt/scratch07/neuro_data_external:/external
+      - /home/fabee/code/neuro_data/dj_local_conf.json:/root/.datajoint_config.json
+    environment:
+      - DISPLAY=$DISPLAY
+
+  fish:
+    build: .
+    env_file: .env
+    ports:
+      - "8888:8888"
+    volumes:
+      - $HOME/Dropbox/notebooks/neuro_data:/notebooks
+      - /tmp:/tmp
+      - /tmp/.X11-unix:/tmp/.X11-unix
+      - /home/fabee/code/neuro_data:/src/neuro_data
+      - /mnt/scratch07/neuro_data_external:/external
+      - /home/fabee/code/neuro_data/dj_local_conf.json:/root/.datajoint_config.json
+    environment:
+      - DISPLAY=$DISPLAY
+    entrypoint:
+      - /usr/bin/fish
