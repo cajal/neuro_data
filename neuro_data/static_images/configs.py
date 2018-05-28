@@ -139,10 +139,10 @@ class DataConfig(ConfigBase, dj.Lookup):
         -> anatomy.Area
         """
         _stimulus_type = 'stimulus.Frame'
-        _exclude_from_normalization = ['inputs', 'responses']
+        _exclude_from_normalization = ['images', 'responses']
 
         def describe(self, key):
-            return "{brain_area} {layer} and {} only.Unnormalized images and responses.".format(self._stimulus_type,
+            return "{brain_area} {layer} and {} only. Unnormalized images and responses.".format(self._stimulus_type,
                                                                                                 **key)
 
         @property
@@ -159,10 +159,10 @@ class DataConfig(ConfigBase, dj.Lookup):
         -> anatomy.Area
         """
         _stimulus_type = '~stimulus.Frame'
-        _exclude_from_normalization = ['inputs', 'responses']
+        _exclude_from_normalization = ['images', 'responses']
 
         def describe(self, key):
-            return "{brain_area} {layer} and {} only.Unnormalized images and responses.".format(self._stimulus_type,
+            return "{brain_area} {layer} and {} only. Unnormalized images and responses.".format(self._stimulus_type,
                                                                                                 **key)
 
         @property

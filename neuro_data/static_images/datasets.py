@@ -1,5 +1,5 @@
-from neuro_data.utils.datasets import H5ArraySet, AttributeTransformer, AttributeHandler
-
+from ..utils.datasets import H5ArraySet, AttributeTransformer, AttributeHandler
+import numpy as np
 
 class StaticImageSet(H5ArraySet):
     def __init__(self, filename, *data_keys, transforms=None, cache_raw=False, stats_source=None):
@@ -11,7 +11,7 @@ class StaticImageSet(H5ArraySet):
 
     @property
     def n_neurons(self):
-        return self[0].responses.shape[1]
+        return len(self[0].responses)
 
     @property
     def neurons(self):
@@ -24,6 +24,14 @@ class StaticImageSet(H5ArraySet):
     @property
     def img_shape(self):
         return (1,) + self[0].images.shape
+
+    def transformed_mean(self, stats_source=None):
+        if stats_source is None:
+            stats_source = self.stats_source
+        tmp = [np.atleast_1d(self.statistics['{}/{}/mean'.format(dk, stats_source)].value)
+               for dk in self.data_keys]
+        return self.transform(self.data_point(*tmp))
+
 
 
     def __repr__(self):

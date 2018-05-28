@@ -427,6 +427,9 @@ class InputResponse(dj.Computed, FilterMixin):
         hashes, trial_idxs, tiers, types, images = trials.fetch('condition_hash', 'trial_idx', 'tier',
                                                                 'stimulus_type', 'frame', order_by='row_id')
         images = np.stack(images)
+        if len(images.shape) == 3:
+            log.info('Adding channel dimension')
+            images = images[:, None, ...]
         hashes = hashes.astype(str)
         types = types.astype(str)
 
