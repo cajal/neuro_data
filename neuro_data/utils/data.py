@@ -1,17 +1,12 @@
 import hashlib
 import pathlib
-from _warnings import warn
-from collections import OrderedDict
 from shutil import copyfile
 from warnings import warn
 
-import torch
-from scipy import signal
 import pickle
 import os.path as op
-from torch.utils.data.sampler import Sampler
 from tqdm import tqdm
-
+from .. import logger as log
 import datajoint as dj
 
 fuse = dj.create_virtual_module('fuse', 'pipeline_fuse')
@@ -39,7 +34,7 @@ class NaNSpline(InterpolatedUnivariateSpline):
     def __init__(self, x, y, **kwargs):
         xnan = np.isnan(x)
         if np.any(xnan):
-            warn('Found nans in the x-values. Replacing them with linear interpolation')
+            log.warning('Found nans in the x-values. Replacing them with linear interpolation')
         ynan = np.isnan(y)
         w = xnan | ynan  # get nans
         x, y = map(np.array, [x, y])  # copy arrays

@@ -1,16 +1,8 @@
+
 from collections import namedtuple
 
 import h5py
-from attorch.dataset import Invertible
 from torch.utils.data import Dataset
-
-from collections import defaultdict, namedtuple, Mapping
-
-import h5py
-import torch
-from torch.utils.data import Dataset
-import numpy as np
-from torch.autograd import Variable
 
 
 class Invertible:
@@ -20,14 +12,14 @@ class Invertible:
 
 class H5ArraySet(Dataset):
     def __init__(self, filename, *data_keys, transforms=None):
-        self.fid = h5py.File(filename, 'r')
+        self._fid = h5py.File(filename, 'r')
         m = None
         for key in data_keys:
-            assert key in self.fid, 'Could not find {} in file'.format(key)
+            assert key in self._fid, 'Could not find {} in file'.format(key)
             if m is None:
-                m = len(self.fid[key])
+                m = len(self._fid[key])
             else:
-                assert m == len(self.fid[key]), 'Length of datasets do not match'
+                assert m == len(self._fid[key]), 'Length of datasets do not match'
         self._len = m
         self.data_keys = data_keys
 
@@ -36,7 +28,7 @@ class H5ArraySet(Dataset):
         self.data_point = namedtuple('DataPoint', data_keys)
 
     def __getitem__(self, item):
-        x = self.data_point(*(self._fid[g][item].value for g in self.data_keys))
+        x = self.data_point(*(self._fid[g][item] for g in self.data_keys))
         for tr in self.transforms:
             x = tr(x)
         return x
@@ -48,7 +40,7 @@ class H5ArraySet(Dataset):
         return self._len
 
     def __repr__(self):
-        return '\n'.join(['Tensor {}: {} '.format(key, self.fid[key].shape)
+        return '\n'.join(['Tensor {}: {} '.format(key, self._fid[key].shape)
                           for key in self.data_keys] + ['Transforms: ' + repr(self.transform)])
 
     def transform(self, x, exclude=None):
@@ -78,25 +70,34 @@ class H5ArraySet(Dataset):
             raise AttributeError('Item {} not found in {}'.format(item, self.__class__.__name__))
 
     def __repr__(self):
-        return 'H5ArraySet m={}:\n\t({})'.format(len(self), ', '.join(self.data_groups)) \
+        return 'H5ArraySet m={}:\n\t({})'.format(len(self), ', '.join(self.data_keys)) \
                + '\n\t[Transforms: ' + '->'.join([repr(tr) for tr in self.transforms]) + ']'
 
 
-class AttributeTransformer:
-    def __init__(self, name, h5_handle, transforms):
+
+class AttributeHandler:
+    def __init__(self, name, h5_handle):
         assert name in h5_handle, '{} must be in {}'.format(name, h5_handle)
         self.name = name
         self.h5_handle = h5_handle
+
+    def __getattr__(self, item):
+        ret = self.h5_handle[self.name][item].value
+        if ret.dtype.char == 'S':  # convert bytes to unicode
+            ret = ret.astype(str)
+        return ret
+
+    def __dir__(self):
+        return self.h5_handle[self.name].keys()
+
+
+class AttributeTransformer(AttributeHandler):
+    def __init__(self, name, h5_handle, transforms):
+        super().__init__(name, h5_handle)
         self.transforms = transforms
 
     def __getattr__(self, item):
-        if not item in self.h5_handle[self.name]:
-            raise AttributeError('{} is not among the attributes'.format(item))
-        else:
-            ret = self.h5_handle[self.name][item].value
-            if ret.dtype.char == 'S':  # convert bytes to univcode
-                ret = ret.astype(str)
-            for tr in self.transforms:
-                ret = tr.column_transform(ret)
-            return ret
-
+        ret = super().__getattr__(item)
+        for tr in self.transforms:
+            ret = tr.column_transform(ret)
+        return ret

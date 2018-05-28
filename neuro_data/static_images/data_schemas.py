@@ -1,19 +1,16 @@
-from _warnings import warn
-from collections import OrderedDict, namedtuple
-
-import h5py
+from collections import OrderedDict
 from functools import partial
-from itertools import chain, count, compress
+from itertools import count, compress
 from pprint import pformat
+
 import cv2
-import logging
-from . import logger as log
 import datajoint as dj
 import numpy as np
-from scipy import stats
 import pandas as pd
-from attorch.dataset import Invertible
-from .utils.data import h5cached, SplineCurve, FilterMixin, fill_nans, NaNSpline
+
+from .datasets import StaticImageSet
+from .. import logger as log
+from ..utils.data import h5cached, SplineCurve, FilterMixin, fill_nans, NaNSpline
 
 dj.config['external-data'] = dict(
     protocol='file',
@@ -435,25 +432,35 @@ class InputResponse(dj.Computed, FilterMixin):
 
         # --- extract infomation for each trial
         extra_info = pd.DataFrame({'condition_hash':hashes, 'trial_idx':trial_idxs})
-        dfs = []
+        dfs = OrderedDict()
         for t in map(lambda x: x.split('.')[1], np.unique(types)):
             stim = getattr(stimulus, t)
             rel = stim() * stimulus.Trial() & key
             df = pd.DataFrame(rel.proj(*rel.heading.non_blobs).fetch())
-            dfs.append(df)
-        on = set(dfs[0].columns)
-        for d in dfs[1:]:
-            on = on & set(d.columns)
-        df = dfs[0]
-        for d in dfs[1:]:
-            df = df.merge(d, how='outer', on=list(on))
+            dfs[t] = df
+
+        on = ['animal_id', 'condition_hash', 'scan_idx', 'session', 'trial_idx']
+        for t, df in dfs.items():
+            mapping = {c:(t.lower() + '_' + c) for c in set(df.columns) - set(on)}
+            dfs[t] = df.rename(str, mapping)
+        df = list(dfs.values())[0]
+        for d in list(dfs.values())[1:]:
+            df = df.merge(d, how='outer', on=on)
         extra_info = extra_info.merge(df, on=['condition_hash','trial_idx']) # align rows to existing data
         assert len(extra_info) == len(trial_idxs), 'Extra information changes in length'
         assert np.all(extra_info['condition_hash'] == hashes), 'Hash order changed'
         assert np.all(extra_info['trial_idx'] == trial_idxs), 'Trial idx order changed'
         row_info = {}
+
         for k in extra_info.columns:
-            row_info[k] = np.array(extra_info[k], dtype=extra_info_types[k])
+            dt = extra_info[k].dtype
+            if isinstance(extra_info[k][0], str):
+                row_info[k] = np.array(extra_info[k], dtype='S')
+            elif dt == np.dtype('O') or dt == np.dtype('<M8[ns]'):
+                row_info[k] = np.array(list(map(repr, extra_info[k])), dtype='S')
+            else:
+                row_info[k] = np.array(extra_info[k])
+
         # extract behavior
         if include_behavior:
             pupil, dpupil, pupil_center, valid_eye = (Eye & key).fetch1('pupil', 'dpupil', 'center', 'valid')
@@ -529,7 +536,7 @@ class InputResponse(dj.Computed, FilterMixin):
         input_statistics = run_stats(lambda ix: images[ix], types, tiers == 'train')
 
         statistics = dict(
-            inputs=input_statistics,
+            images=input_statistics,
             responses=response_statistics
         )
 
@@ -720,3 +727,69 @@ class Treadmill(dj.Computed, FilterMixin, BehaviorMixin):
 
         self.insert1(dict(scan_key, treadmill=tm, valid=valid))
 
+
+@schema
+class StaticMultiDataset(dj.Manual):
+    definition = """
+    # defines a group of datasets
+
+    group_id    : smallint  # index of group
+    ---
+    description : varchar(255) # short description of the data
+    """
+
+    class Member(dj.Part):
+        definition = """
+        -> master
+        -> InputResponse
+        ---
+        name                    : varchar(50) unique # string description to be used for training
+        """
+
+    _template = 'group{group_id:03d}-{animal_id}-{session}-{scan_idx}-{preproc_id}'
+
+    def fill(self):
+        selection = [
+            ('11521-7-1', dict(animal_id=11521, session=7, scan_idx=1, preproc_id=0)),
+            ('11521-7-2', dict(animal_id=11521, session=7, scan_idx=2, preproc_id=0)),
+            ('16157-5-5', dict(animal_id=16157, session=5, scan_idx=5, preproc_id=0)),
+            ('16157-5-5', dict(animal_id=16157, session=5, scan_idx=6, preproc_id=0)),
+        ]
+        for group_id, (descr, key) in enumerate(selection):
+            entry = dict(group_id=group_id, description=descr)
+            if entry in self:
+                print('Already found entry', entry)
+            else:
+                with self.connection.transaction:
+                    if not (InputResponse() & key):
+                        ValueError('Dataset not found')
+                    self.insert1(entry)
+                    for k in (InputResponse() & key).fetch(dj.key):
+                        k = dict(entry, **k)
+                        name = self._template.format(**k)
+                        self.Member().insert1(dict(k, name=name), ignore_extra_fields=True)
+
+    def fetch_data(self, key, key_order=None):
+        assert len(self & key) == 1, 'Key must refer to exactly one multi dataset'
+        ret = OrderedDict()
+        log.info('Fetching data for\n' +  pformat(key, indent=10))
+        for mkey in (self.Member() & key).fetch(dj.key,
+                                                order_by='animal_id ASC, session ASC, scan_idx ASC, preproc_id ASC'):
+            name = (self.Member() & mkey).fetch1('name')
+            include_behavior = bool(Eye().proj() * Treadmill().proj() & mkey)
+            data_names = ['images', 'responses'] if not include_behavior \
+                else ['images',
+                      'behavior',
+                      'pupil_center',
+                      'responses']
+            log.info('Data will be ({})'.format(','.join(data_names)))
+
+            h5filename = InputResponse().get_hdf5_filename(mkey)
+            log.info('Loading dataset {} --> {}'.format(name, h5filename))
+            ret[name] = StaticImageSet(h5filename, *data_names)
+        if key_order is not None:
+            log.info('Reordering datasets according to given key order {}'.format(', '.join(key_order)))
+            ret = OrderedDict([
+                (k, ret[k]) for k in key_order
+            ])
+        return ret
