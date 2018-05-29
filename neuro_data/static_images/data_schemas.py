@@ -775,7 +775,7 @@ class StaticMultiDataset(dj.Manual):
     def fetch_data(self, key, key_order=None):
         assert len(self & key) == 1, 'Key must refer to exactly one multi dataset'
         ret = OrderedDict()
-        log.info('Fetching data for\n' +  pformat(key, indent=10))
+        log.info('Fetching data for ' +  repr(key))
         for mkey in (self.Member() & key).fetch(dj.key,
                                                 order_by='animal_id ASC, session ASC, scan_idx ASC, preproc_id ASC'):
             name = (self.Member() & mkey).fetch1('name')

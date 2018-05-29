@@ -46,12 +46,9 @@ class StimulusTypeMixin:
             constraint = constraint & (dataset.tiers == tier)
         return constraint
 
-    def get_loaders(self, datasets, tier, batch_size, stimulus_types=None):
-        if stimulus_types is None:
-            log.info('Using {} as stimulus type for all datasets'.format(self._stimulus_type))
-            stimulus_types = len(datasets) * [self._stimulus_type]
+    def get_loaders(self, datasets, tier, batch_size, stimulus_types):
         if not isinstance(stimulus_types, list):
-            log.info('Using {} as stimulus type for all datasets'.format(self._stimulus_type))
+            log.info('Using {} as stimulus type for all datasets'.format(stimulus_types))
             stimulus_types = len(datasets) * [stimulus_types]
 
         log.info('Stimulus sources: "{}"'.format('","'.join(stimulus_types)))
@@ -92,8 +89,10 @@ class StimulusTypeMixin:
 
 class AreaLayerRawMixin(StimulusTypeMixin):
     def load_data(self, key, tier=None, batch_size=1, key_order=None, stimulus_types=None):
+        exclude = key.pop('exclude').split(',')
+        stimulus_types = key.pop('stimulus_type')
         datasets, loaders = super().load_data(key, tier, batch_size, key_order,
-                                              exclude_from_normalization=self._exclude_from_normalization,
+                                              exclude_from_normalization=exclude,
                                               stimulus_types=stimulus_types)
 
         log.info('Subsampling to layer "{layer}" and area "{brain_area}"'.format(**key))
@@ -112,61 +111,33 @@ class DataConfig(ConfigBase, dj.Lookup):
     def data_key(self, key):
         return dict(key, **self.parameters(key))
 
-    def load_data(self, key, oracle=False, **kwargs):
+    def load_data(self, key, **kwargs):
         data_key = self.data_key(key)
         Data = getattr(self, data_key.pop('data_type'))
         datasets, loaders = Data().load_data(data_key, **kwargs)
-
-        if oracle:
-            log.info('Placing oracle data samplers')
-            for readout_key, loader in loaders.items():
-                ix = loader.sampler.indices
-                condition_hashes = datasets[readout_key].condition_hashes
-                log.info('Replacing', loader.sampler.__class__.__name__, 'with RepeatsBatchSampler', depth=1)
-                loader.sampler = None
-
-                datasets[readout_key].transforms = \
-                    [tr for tr in datasets[readout_key].transforms if isinstance(tr, (Subsample, ToTensor))]
-                loader.batch_sampler = RepeatsBatchSampler(condition_hashes, subset_index=ix)
         return datasets, loaders
 
     class AreaLayerRawNatural(dj.Part, AreaLayerRawMixin):
         definition = """
         -> master
         ---
-        stats_source            : varchar(50)  # normalization source
+        stats_source            : varchar(50)   # normalization source
+        stimulus_type           : varchar(50)   # type of stimulus
+        exclude                 : varchar(512)  # what inputs to exclude from normalization
+        normalize               : bool          # whether to use a normalize or not
         -> experiment.Layer
         -> anatomy.Area
         """
-        _stimulus_type = 'stimulus.Frame'
-        _exclude_from_normalization = ['images', 'responses']
 
         def describe(self, key):
-            return "{brain_area} {layer} and {} only. Unnormalized images and responses.".format(self._stimulus_type,
-                                                                                                **key)
+            return "{brain_area} {layer} on {stimulus_type}. normalize={normalize} on {stats_source} (except '{exclude}')".format(**key)
 
         @property
         def content(self):
-            for p in product(['all'], ['L4', 'L2/3'], ['V1', 'LM']):
+            for p in product(['all'],
+                             ['stimulus.Frame', '~stimulus.Frame'],
+                             ['images,responses',''],
+                             [True],
+                             ['L4', 'L2/3'],
+                             ['V1', 'LM']):
                 yield dict(zip(self.heading.dependent_attributes, p))
-
-    class AreaLayerRawNoise(dj.Part, AreaLayerRawMixin):
-        definition = """
-        -> master
-        ---
-        stats_source            : varchar(50)  # normalization source
-        -> experiment.Layer
-        -> anatomy.Area
-        """
-        _stimulus_type = '~stimulus.Frame'
-        _exclude_from_normalization = ['images', 'responses']
-
-        def describe(self, key):
-            return "{brain_area} {layer} and {} only. Unnormalized images and responses.".format(self._stimulus_type,
-                                                                                                **key)
-
-        @property
-        def content(self):
-            for p in product(['all'], ['L4', 'L2/3'], ['V1', 'LM']):
-                yield dict(zip(self.heading.dependent_attributes, p))
-

@@ -230,7 +230,7 @@ class h5cached:
             k = (oself & key).proj().fetch1()
 
             if self.file_format is None:
-                hash = key_hash(dict(k, **kwargs))  # TODO add in class name eventually
+                hash = key_hash(dict(k, _class_name=cls.__name__, **kwargs))
                 filename = '{hash}.h5'.format(hash=hash)
             else:
                 filename = self.file_format.format(**k)
