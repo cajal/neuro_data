@@ -17,7 +17,9 @@ dj.config['external-data'] = dict(
     location='/external/static-data/')
 
 STATIC = ['(animal_id=11521 and session=7 and scan_idx in (1,2))',
-          '(animal_id=16157 and session=5 and scan_idx in (5,6))']
+          '(animal_id=16157 and session=5 and scan_idx in (5,6))',
+          '(animal_id=11677 and session=2 and scan_idx=1)'
+          ]
 
 UNIQUE_FRAME = {
     'stimulus.Frame': ('image_id', 'image_class'),
@@ -220,14 +222,16 @@ class Preprocessing(dj.Lookup):
     ---
     offset           : decimal(6,4)  # offset to stimulus onset in s
     duration         : decimal(6,4)  # window length in s
-    row              : tinyint       # row size of movies
-    col              : tinyint       # col size of movie
+    row              : smallint       # row size of movies
+    col              : smallint       # col size of movie
     filter           : varchar(24)   # filter type for window extraction
     """
 
     @property
     def contents(self):
-        yield from zip(count(), [0.05], [0.5], [36], [64], ['hamming'])
+        yield dict(preproc_id=0, offset=0.05, duration=.5, row=36, col=64, filter='hamming') # this one was still processed with cropping
+        yield dict(preproc_id=1, offset=0.05, duration=.5, row=36, col=64, filter='hamming')
+        # yield dict(preproc_id=2, offset=0.05, duration=.5, row=72, col=128, filter='hamming')
 
 
 @schema
@@ -243,7 +247,7 @@ class Frame(dj.Computed):
 
     @property
     def key_source(self):
-        return stimulus.Condition() * Preprocessing() & ConditionTier() & 'preproc_id=0'
+        return stimulus.Condition() * Preprocessing() & ConditionTier()
 
     def load_frame(self, key):
 
@@ -266,14 +270,13 @@ class Frame(dj.Computed):
 
         log.info('Downsampling frame')
         frame = self.load_frame(key)
-
         if not frame.shape[0] / imgsize[1] == frame.shape[1] / imgsize[0]:
             log.warning('Image size would change aspect ratio.')
-            if frame.shape == (126, 216):
-                log.warning('Using center crop')
-                frame = frame[4:4 + 117, 4:4 + 208]
-            else:
-                raise ValueError('Frame shape {} cannot be processed'.format(frame.shape))
+            # if frame.shape == (126, 216):
+            #     log.warning('Using center crop')
+            #     frame = frame[4:4 + 117, 4:4 + 208]
+            # else:
+            #     raise ValueError('Frame shape {} cannot be processed'.format(frame.shape))
 
         frame = cv2.resize(frame, imgsize, interpolation=cv2.INTER_AREA).astype(np.float32)
 
@@ -293,7 +296,7 @@ class InputResponse(dj.Computed, FilterMixin):
     ---
     """
 
-    key_source = StaticScan() * Preprocessing() & Frame() & 'preproc_id=0'
+    key_source = StaticScan() * Preprocessing() & Frame()
 
     class Input(dj.Part):
         definition = """
@@ -691,7 +694,7 @@ class Treadmill(dj.Computed, FilterMixin, BehaviorMixin):
 
     @property
     def key_source(self):
-        rel = InputResponse & 'preproc_id=0'
+        rel = InputResponse
         return rel & treadmill.Treadmill() & stimulus.BehaviorSync()
 
     def _make_tuples(self, scan_key):
@@ -757,6 +760,7 @@ class StaticMultiDataset(dj.Manual):
             ('11521-7-2', dict(animal_id=11521, session=7, scan_idx=2, preproc_id=0)),
             ('16157-5-5', dict(animal_id=16157, session=5, scan_idx=5, preproc_id=0)),
             ('16157-5-5', dict(animal_id=16157, session=5, scan_idx=6, preproc_id=0)),
+            ('16157-5-5-scaled', dict(animal_id=16157, session=5, scan_idx=5, preproc_id=1)),
         ]
         for group_id, (descr, key) in enumerate(selection):
             entry = dict(group_id=group_id, description=descr)
