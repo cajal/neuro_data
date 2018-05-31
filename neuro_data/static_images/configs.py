@@ -111,13 +111,33 @@ class DataConfig(ConfigBase, dj.Lookup):
     def data_key(self, key):
         return dict(key, **self.parameters(key))
 
-    def load_data(self, key, **kwargs):
+    def load_data(self, key, oracle=False, **kwargs):
         data_key = self.data_key(key)
         Data = getattr(self, data_key.pop('data_type'))
         datasets, loaders = Data().load_data(data_key, **kwargs)
+
+        if oracle:
+            log.info('Placing oracle data samplers')
+            for k, loader in loaders.items():
+                ix = loader.sampler.indices
+                condition_hashes = datasets[k].condition_hashes
+                log.info('Replacing {} with RepeatsBatchSampler'.format(loader.sampler.__class__.__name__))
+                loader.sampler = None
+
+                removed = []
+                keep = []
+                for tr in datasets[k].transforms:
+                    if isinstance(tr, (Subsample, ToTensor)):
+                        keep.append(tr)
+                    else:
+                        removed.append(tr.__class__.__name__)
+                datasets[k].transforms = keep
+                log.warning('Removed the following transforms: "{}"'.format('", "'.join(removed)))
+                loader.batch_sampler = RepeatsBatchSampler(condition_hashes, subset_index=ix)
+
         return datasets, loaders
 
-    class AreaLayerRawNatural(dj.Part, AreaLayerRawMixin):
+    class AreaLayer(dj.Part, AreaLayerRawMixin):
         definition = """
         -> master
         ---
@@ -141,3 +161,57 @@ class DataConfig(ConfigBase, dj.Lookup):
                              ['L4', 'L2/3'],
                              ['V1', 'LM']):
                 yield dict(zip(self.heading.dependent_attributes, p))
+
+
+    class AreaLayerPercentOracle(dj.Part, AreaLayerRawMixin):
+        definition = """
+        -> master
+        ---
+        stats_source            : varchar(50)   # normalization source
+        stimulus_type           : varchar(50)   # type of stimulus
+        exclude                 : varchar(512)  # what inputs to exclude from normalization
+        normalize               : bool          # whether to use a normalize or not
+        (oracle_source) -> master 
+        -> experiment.Layer
+        -> anatomy.Area
+        percent                 : tinyint       # percent oracle cutoff 
+        """
+
+        def describe(self, key):
+            return "Like AreaLayer by only {percent} percent best oracle neurons computed on {oracle_source}".format(**key)
+
+        @property
+        def content(self):
+            for p in product(['all'],
+                             ['stimulus.Frame', '~stimulus.Frame'],
+                             ['images,responses'],
+                             [True],
+                             list((DataConfig.AreaLayer() & dict(brain_area='V1', layer='L2/3',
+                                                            normalize=True, stats_source='all',
+                                                            stimulus_type='~stimulus.Frame',
+                                                            exclude='images,responses')).fetch('data_hash')),
+                             ['L2/3'],
+                             ['V1'],
+                             [75]):
+                yield dict(zip(self.heading.dependent_attributes, p))
+
+        def load_data(self, key, tier=None, batch_size=1, key_order=None, stimulus_types=None):
+            from .oracle import Pearson
+            datasets, loaders = super().load_data(key, tier=tier, batch_size=batch_size,
+                                                  key_order=key_order, stimulus_types=stimulus_types)
+            for rok, dataset in datasets.items():
+                member_key = (StaticMultiDataset.Member() & key & dict(name=rok)).fetch1(dj.key)
+
+                okey = dict(key, **member_key)
+                okey['data_hash'] = okey.pop('oracle_source')
+                units, pearson = (Pearson.UnitScores() & okey).fetch('unit_id', 'pearson')
+                assert len(pearson) > 0, 'You forgot to populate oracle for data_hash="{}"'.format(key['oracle_source'])
+                assert len(units) == len(dataset.neurons.unit_ids), 'Number of neurons has changed'
+                assert np.all(units == dataset.neurons.unit_ids), 'order of neurons has changed'
+
+                cutoff = np.percentile(pearson, key['percent'])
+                log.info('Subsampling to {} neurons above {:.2f} oracle'.format((pearson >= cutoff).sum(), cutoff))
+                dataset.transforms.insert(-1, Subsample(np.where(pearson >= cutoff)[0]))
+
+                assert np.all(dataset.neurons.unit_ids == units[pearson >= cutoff]), 'Units are inconsistent'
+            return datasets, loaders

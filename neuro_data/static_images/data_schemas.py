@@ -23,8 +23,8 @@ STATIC = ['(animal_id=11521 and session=7 and scan_idx in (1,2))',
 
 UNIQUE_FRAME = {
     'stimulus.Frame': ('image_id', 'image_class'),
-    'stimulus.MonetFrame': ('rng_seed',),
-    'stimulus.TrippyFrame': ('rng_seed',),
+    'stimulus.MonetFrame': ('rng_seed','orientation'),
+    'stimulus.TrippyFrame': ('rng_seed','orientation'),
 }
 
 experiment = dj.create_virtual_module('experiment', 'pipeline_experiment')
@@ -44,6 +44,7 @@ schema = dj.schema('neurodata_static', locals())
 
 extra_info_types = {
     'condition_hash':'S',
+    'trial_idx':int,
     'trial_idx':int,
     'animal_id':int,
     'session':int,
@@ -231,7 +232,7 @@ class Preprocessing(dj.Lookup):
     def contents(self):
         yield dict(preproc_id=0, offset=0.05, duration=.5, row=36, col=64, filter='hamming') # this one was still processed with cropping
         yield dict(preproc_id=1, offset=0.05, duration=.5, row=36, col=64, filter='hamming')
-        # yield dict(preproc_id=2, offset=0.05, duration=.5, row=72, col=128, filter='hamming')
+        yield dict(preproc_id=2, offset=0.05, duration=.5, row=72, col=128, filter='hamming')
 
 
 @schema
@@ -760,7 +761,7 @@ class StaticMultiDataset(dj.Manual):
             ('11521-7-2', dict(animal_id=11521, session=7, scan_idx=2, preproc_id=0)),
             ('16157-5-5', dict(animal_id=16157, session=5, scan_idx=5, preproc_id=0)),
             ('16157-5-5', dict(animal_id=16157, session=5, scan_idx=6, preproc_id=0)),
-            ('16157-5-5-scaled', dict(animal_id=16157, session=5, scan_idx=5, preproc_id=1)),
+            ('16157-5-5-scaled', dict(animal_id=16157, session=5, scan_idx=5, preproc_id=2)),
         ]
         for group_id, (descr, key) in enumerate(selection):
             entry = dict(group_id=group_id, description=descr)
