@@ -174,11 +174,12 @@ class DataConfig(ConfigBase, dj.Lookup):
         (oracle_source) -> master 
         -> experiment.Layer
         -> anatomy.Area
-        percent                 : tinyint       # percent oracle cutoff 
+        percent_low                 : tinyint       # percent oracle lower cutoff 
+        percent_high                 : tinyint      # percent oracle upper cutoff 
         """
 
         def describe(self, key):
-            return "Like AreaLayer by only {percent} percent best oracle neurons computed on {oracle_source}".format(**key)
+            return "Like AreaLayer but only {percent_low}-{percent_high} percent best oracle neurons computed on {oracle_source}".format(**key)
 
         @property
         def content(self):
@@ -192,6 +193,7 @@ class DataConfig(ConfigBase, dj.Lookup):
                                                             exclude='images,responses')).fetch('data_hash')),
                              ['L2/3'],
                              ['V1'],
+                             [25],
                              [75]):
                 yield dict(zip(self.heading.dependent_attributes, p))
 
@@ -209,9 +211,10 @@ class DataConfig(ConfigBase, dj.Lookup):
                 assert len(units) == len(dataset.neurons.unit_ids), 'Number of neurons has changed'
                 assert np.all(units == dataset.neurons.unit_ids), 'order of neurons has changed'
 
-                cutoff = np.percentile(pearson, key['percent'])
-                log.info('Subsampling to {} neurons above {:.2f} oracle'.format((pearson >= cutoff).sum(), cutoff))
-                dataset.transforms.insert(-1, Subsample(np.where(pearson >= cutoff)[0]))
+                low, high = np.percentile(pearson, [key['percent_low'], key['percent_high']])
+                selection = (pearson >= low) & (pearson <= high)
+                log.info('Subsampling to {} neurons above {:.2f} and below {} oracle'.format(selection.sum(), low, high))
+                dataset.transforms.insert(-1, Subsample(np.where(selection)[0]))
 
-                assert np.all(dataset.neurons.unit_ids == units[pearson >= cutoff]), 'Units are inconsistent'
+                assert np.all(dataset.neurons.unit_ids == units[selection]), 'Units are inconsistent'
             return datasets, loaders
