@@ -88,7 +88,8 @@ class StimulusTypeMixin:
 
 
 class AreaLayerRawMixin(StimulusTypeMixin):
-    def load_data(self, key, tier=None, batch_size=1, key_order=None, stimulus_types=None):
+    def load_data(self, key, tier=None, batch_size=1, key_order=None, stimulus_types=None, **kwargs):
+        log.info('Ignoring input arguments: "' + '", "'.join(kwargs.keys()) + '"' + 'when creating datasets')
         exclude = key.pop('exclude').split(',')
         stimulus_types = key.pop('stimulus_type')
         datasets, loaders = super().load_data(key, tier, batch_size, key_order,
@@ -111,7 +112,7 @@ class DataConfig(ConfigBase, dj.Lookup):
     def data_key(self, key):
         return dict(key, **self.parameters(key))
 
-    def load_data(self, key, oracle=False, **kwargs):
+    def load_data(self, key, cuda=False, oracle=False, **kwargs):
         data_key = self.data_key(key)
         Data = getattr(self, data_key.pop('data_type'))
         datasets, loaders = Data().load_data(data_key, **kwargs)
@@ -134,6 +135,12 @@ class DataConfig(ConfigBase, dj.Lookup):
                 datasets[k].transforms = keep
                 log.warning('Removed the following transforms: "{}"'.format('", "'.join(removed)))
                 loader.batch_sampler = RepeatsBatchSampler(condition_hashes, subset_index=ix)
+
+        log.info('Setting cuda={}'.format(cuda))
+        for dat in datasets.values():
+            for tr in dat.transforms:
+                if isinstance(tr, ToTensor):
+                    tr.cuda = cuda
 
         return datasets, loaders
 
@@ -195,6 +202,19 @@ class DataConfig(ConfigBase, dj.Lookup):
                              ['V1'],
                              [25],
                              [75]):
+                yield dict(zip(self.heading.dependent_attributes, p))
+            for p in product(['all'],
+                             ['stimulus.Frame', '~stimulus.Frame'],
+                             ['images,responses'],
+                             [True],
+                             list((DataConfig.AreaLayer() & dict(brain_area='V1', layer='L2/3',
+                                                            normalize=True, stats_source='all',
+                                                            stimulus_type='~stimulus.Frame',
+                                                            exclude='images,responses')).fetch('data_hash')),
+                             ['L2/3'],
+                             ['V1'],
+                             [75],
+                             [100]):
                 yield dict(zip(self.heading.dependent_attributes, p))
 
         def load_data(self, key, tier=None, batch_size=1, key_order=None, stimulus_types=None):
