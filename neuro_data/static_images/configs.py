@@ -22,7 +22,8 @@ schema = dj.schema('neurodata_static_configs', locals())
 class StimulusTypeMixin:
     _stimulus_type = None
 
-    def add_transforms(self, key, datasets, tier, exclude=None):
+    #TODO: add normalize option
+    def add_transforms(self, key, datasets, exclude=None):
         if exclude is not None:
             log.info('Excluding "{}" from normalization'.format('", "'.join(exclude)))
         for k, dataset in datasets.items():
@@ -101,7 +102,12 @@ class AreaLayerRawMixin(StimulusTypeMixin):
             layers = dataset.neurons.layer
             areas = dataset.neurons.area
             idx = np.where((layers == key['layer']) & (areas == key['brain_area']))[0]
-            dataset.transforms.insert(-1, Subsample(idx))
+            if len(idx) == 0:
+                log.warning('Empty set of neurons. Deleting this key')
+                del datasets[readout_key]
+                del loaders[readout_key]
+            else:
+                dataset.transforms.insert(-1, Subsample(idx))
         return datasets, loaders
 
 

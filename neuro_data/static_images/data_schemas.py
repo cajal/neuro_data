@@ -14,7 +14,7 @@ from ..utils.data import h5cached, SplineCurve, FilterMixin, fill_nans, NaNSplin
 
 dj.config['external-data'] = dict(
     protocol='file',
-    location='/external/static-data/')
+    location='/external/')
 
 STATIC = ['(animal_id=11521 and session=7 and scan_idx in (1,2))',
           '(animal_id=16157 and session=5 and scan_idx in (5,6))',
