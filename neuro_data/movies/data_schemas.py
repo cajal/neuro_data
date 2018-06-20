@@ -762,7 +762,7 @@ class AttributeTransformer:
 
 
 class MovieSet(H5SequenceSet):
-    def __init__(self, filename, *data_keys, transforms=None, cache_raw=False, stats_source=None):
+    def __init__(self, filename, *data_keys, transforms=None, stats_source=None):
         super().__init__(filename, *data_keys, transforms=transforms)
         self.shuffle_dims = {}
         self.stats_source = stats_source if stats_source is not None else 'all'
@@ -803,8 +803,6 @@ class MovieSet(H5SequenceSet):
         x = self.data_point(*(np.array(self._fid[g][
                                            str(item if g not in self.shuffle_dims else self.shuffle_dims[g][item])])
                               for g in self.data_groups))
-        if self.cache_raw:
-            self.last_raw = x
         for tr in self.transforms:
             x = tr(x)
         return x

@@ -1,5 +1,7 @@
 from collections import OrderedDict
 from itertools import product, count
+from pprint import pformat
+
 from attorch.dataloaders import RepeatsBatchSampler
 from torch.utils.data.sampler import SubsetRandomSampler
 
@@ -19,7 +21,7 @@ schema = dj.schema('neurodata_movie_configs', locals())
 
 class StimulusTypeMixin:
 
-    def add_transforms(self, key, datasets, tier, exclude=None, normalize=True):
+    def add_transforms(self, key, datasets, tier, exclude=None, normalize=True, cuda=False):
         log.info('Adding transforms'.ljust(80, '-'))
         if exclude is not None:
             log.info('Excluding "' + '", "'.join(exclude) + '" from normalization')
@@ -32,7 +34,7 @@ class StimulusTypeMixin:
             if normalize:
                 log.info('Using normalization={}'.format(normalize))
                 transforms.append(Normalizer(dataset, stats_source=key['stats_source'], exclude=exclude))
-            transforms.append(ToTensor())
+            transforms.append(ToTensor(cuda=cuda))
             dataset.transforms = transforms
 
         return datasets
@@ -106,8 +108,8 @@ class StimulusTypeMixin:
 
     def load_data(self, key, stimulus_types, tier=None, batch_size=1, key_order=None,
                   normalize=True, exclude_from_normalization=None,
-                  balanced=False, shrink_to_same_size=False):
-        log.info('Loading {} datasets with tier {}'.format(repr(stimulus_types), tier))
+                  balanced=False, shrink_to_same_size=False, cuda=False):
+        log.info('Loading {} datasets with tier {}'.format(pformat(stimulus_types, indent=20), tier))
         datasets = MovieMultiDataset().fetch_data(key, key_order=key_order)
         log.info('Adding stats source'.ljust(80, '-'))
         for k, dat in datasets.items():
@@ -117,14 +119,15 @@ class StimulusTypeMixin:
 
         log.info('Using statistics source ' + key['stats_source'])
         datasets = self.add_transforms(key, datasets, tier, exclude=exclude_from_normalization,
-                                       normalize=normalize)
+                                       normalize=normalize, cuda=cuda)
         loaders = self.get_loaders(datasets, tier, batch_size, stimulus_types=stimulus_types,
                                    balanced=balanced, shrink_to_same_size=shrink_to_same_size)
         return datasets, loaders
 
 
 class AreaLayerMixin(StimulusTypeMixin):
-    def load_data(self, key, tier=None, batch_size=1, key_order=None):
+    def load_data(self, key, tier=None, batch_size=1, key_order=None, cuda=False, **kwargs):
+        log.info('Ignoring {} when loading {}'.format(pformat(kwargs, indent=20), self.__class__.__name__))
         shrink = key.pop('shrink', False)
         balanced = key.pop('balanced', False)
 
@@ -133,7 +136,8 @@ class AreaLayerMixin(StimulusTypeMixin):
                                               exclude_from_normalization=key.pop('exclude').split(','),
                                               normalize=key.pop('normalize'),
                                               balanced=balanced,
-                                              shrink_to_same_size=shrink)
+                                              shrink_to_same_size=shrink,
+                                              cuda=cuda)
 
         log.info('Subsampling to layer "{layer}" and area "{brain_area}"'.format(**key))
         for readout_key, dataset in datasets.items():
