@@ -83,7 +83,7 @@ class StimulusTypeMixin:
                 dat.stats_source = key['stats_source']
 
         log.info('Using statistics source ' +  key['stats_source'])
-        datasets = self.add_transforms(key, datasets, tier, exclude=exclude_from_normalization)
+        datasets = self.add_transforms(key, datasets, exclude=exclude_from_normalization)
         loaders = self.get_loaders(datasets, tier, batch_size, stimulus_types=stimulus_types)
         return datasets, loaders
 
