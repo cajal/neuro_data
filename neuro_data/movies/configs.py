@@ -57,6 +57,9 @@ class StimulusTypeMixin:
         if not isinstance(stimulus_types, list):
             log.info('Using ' + stimulus_types + ' as stimulus type for all datasets')
             stimulus_types = len(datasets) * [stimulus_types]
+        elif len(stimulus_types) == 1 and len(datasets) > 1:
+            log.info('Using ' + stimulus_types[0] + ' as stimulus type for all datasets')
+            stimulus_types = len(datasets) * stimulus_types
         else:
             assert len(stimulus_types) == len(datasets), \
                 'Number of requested types does not match number of datasets. You need to choose a different group'
