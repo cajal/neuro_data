@@ -171,11 +171,11 @@ class DataConfig(ConfigBase, dj.Lookup):
         stimulus_type           : varchar(50)   # type of stimulus
         exclude                 : varchar(512)  # what inputs to exclude from normalization
         normalize               : bool          # whether to use a normalize or not
-        (oracle_source) -> master 
+        (oracle_source) -> master
         -> experiment.Layer
         -> anatomy.Area
-        percent_low                 : tinyint       # percent oracle lower cutoff 
-        percent_high                 : tinyint      # percent oracle upper cutoff 
+        percent_low                 : tinyint       # percent oracle lower cutoff
+        percent_high                 : tinyint      # percent oracle upper cutoff
         """
 
         def describe(self, key):
@@ -217,4 +217,61 @@ class DataConfig(ConfigBase, dj.Lookup):
                 dataset.transforms.insert(-1, Subsample(np.where(selection)[0]))
 
                 assert np.all(dataset.neurons.unit_ids == units[selection]), 'Units are inconsistent'
+            return datasets, loaders
+
+    class AreaLayerNoise(dj.Part, AreaLayerRawMixin):
+        definition = """
+        -> master
+        ---
+        stats_source            : varchar(50)   # normalization source
+        stimulus_type           : varchar(50)   # type of stimulus
+        exclude                 : varchar(512)  # what inputs to exclude from normalization
+        normalize               : bool          # whether to use a normalize or not
+        -> experiment.Layer
+        -> anatomy.Area
+        """
+
+        def describe(self, key):
+            return "{brain_area} {layer} on {stimulus_type}. normalize={normalize} on {stats_source} (except '{exclude}')".format(**key)
+
+        @property
+        def content(self):
+            for p in product(['all'],
+                             ['~stimulus.Frame'],
+                             ['images,responses',''],
+                             [True],
+                             ['L4', 'L2/3'],
+                             ['V1', 'LM']):
+                yield dict(zip(self.heading.dependent_attributes, p))
+
+        def load_data(self, key, test_index=0, **kwargs):
+            if 'tier' in kwargs.keys():
+                tier = kwargs['tier']
+                kwargs['tier'] = None
+            else:
+                tier = None
+            datasets, loaders = super().load_data(key, **kwargs)
+            if tier is not None:
+                log.info('Filtering by tier={}'.format(tier))
+                for k, dataset in datasets.items():
+                    noise_indices = np.flatnonzero(dataset.types != 'stimulus.Frame')
+                    unique_condition_hashes = np.unique(dataset.info.condition_hash[noise_indices])
+                    assert test_index < unique_condition_hashes.size
+                    if tier == 'test':
+                        tier_condition_hashes = np.array([unique_condition_hashes[test_index]])
+                    else:
+                        train_val_indices = np.flatnonzero(np.arange(unique_condition_hashes.size) != test_index)
+                        train_size = np.round(train_val_indices.size * .95).astype(np.int)
+                        np.random.seed(test_index)
+                        train_indices = np.random.choice(train_val_indices, train_size, replace=False)
+                        train_indices_bool = np.isin(train_val_indices, train_indices)
+                        if tier == 'train':
+                            tier_condition_hashes = unique_condition_hashes[train_val_indices[train_indices_bool]]
+                        elif tier == 'validation':
+                            tier_condition_hashes = unique_condition_hashes[train_val_indices[~train_indices_bool]]
+                    tier_bool = np.isin(dataset.info.condition_hash, tier_condition_hashes)
+                    loaders[k].sampler.indices = np.flatnonzero(tier_bool)
+                    log.info('Number of samples in the loader will be {}'.format(len(loaders[k].sampler)))
+                    log.info('Number of batches in the loader will be {}'.format(
+                        int(np.ceil(len(loaders[k].sampler) / loaders[k].batch_size))))
             return datasets, loaders
