@@ -227,6 +227,8 @@ class DataConfig(ConfigBase, dj.Lookup):
         stimulus_type           : varchar(50)   # type of stimulus
         exclude                 : varchar(512)  # what inputs to exclude from normalization
         normalize               : bool          # whether to use a normalize or not
+        split_seed              : tinyint       # train/validation random split seed
+        train_val_ratio         : float         # train/validation split ratio
         -> experiment.Layer
         -> anatomy.Area
         """
@@ -240,29 +242,27 @@ class DataConfig(ConfigBase, dj.Lookup):
                              ['~stimulus.Frame'],
                              ['images,responses',''],
                              [True],
+                             [0],
+                             [0.95],
                              ['L4', 'L2/3'],
                              ['V1', 'LM']):
                 yield dict(zip(self.heading.dependent_attributes, p))
 
         def load_data(self, key, test_index=0, **kwargs):
-            if 'tier' in kwargs.keys():
-                tier = kwargs['tier']
-                kwargs['tier'] = None
-            else:
-                tier = None
-            datasets, loaders = super().load_data(key, **kwargs)
+            tier = kwargs.pop('tier', None)
+            datasets, loaders = super().load_data(key, tier=None, **kwargs)
             if tier is not None:
-                log.info('Filtering by tier={}'.format(tier))
                 for k, dataset in datasets.items():
-                    noise_indices = np.flatnonzero(dataset.types != 'stimulus.Frame')
-                    unique_condition_hashes = np.unique(dataset.info.condition_hash[noise_indices])
-                    assert test_index < unique_condition_hashes.size
+                    log.info('Filtering dataset {} by tier={}'.format(k, tier))
+                    log.info('Splitting by test_index={}'.format(test_index))
+                    unique_condition_hashes = np.unique(dataset.info.condition_hash[dataset.types != 'stimulus.Frame'])
+                    assert test_index < unique_condition_hashes.size, 'test_index must be less than {}'.format(unique_condition_hashes.size)
                     if tier == 'test':
                         tier_condition_hashes = np.array([unique_condition_hashes[test_index]])
                     else:
                         train_val_indices = np.flatnonzero(np.arange(unique_condition_hashes.size) != test_index)
-                        train_size = np.round(train_val_indices.size * .95).astype(np.int)
-                        np.random.seed(test_index)
+                        train_size = np.round(train_val_indices.size * key['train_val_ratio']).astype(np.int)
+                        np.random.seed(test_index + key['split_seed'])
                         train_indices = np.random.choice(train_val_indices, train_size, replace=False)
                         train_indices_bool = np.isin(train_val_indices, train_indices)
                         if tier == 'train':
