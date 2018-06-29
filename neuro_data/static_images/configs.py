@@ -22,7 +22,7 @@ schema = dj.schema('neurodata_static_configs', locals())
 class StimulusTypeMixin:
     _stimulus_type = None
 
-    #TODO: add normalize option
+    # TODO: add normalize option
     def add_transforms(self, key, datasets, exclude=None):
         if exclude is not None:
             log.info('Excluding "{}" from normalization'.format('", "'.join(exclude)))
@@ -58,7 +58,8 @@ class StimulusTypeMixin:
     def log_loader(self, loader):
         log.info('Loader sampler is {}'.format(loader.sampler.__class__.__name__))
         log.info('Number of samples in the loader will be {}'.format(len(loader.sampler)))
-        log.info('Number of batches in the loader will be {}'.format(int(np.ceil(len(loader.sampler) / loader.batch_size))))
+        log.info(
+            'Number of batches in the loader will be {}'.format(int(np.ceil(len(loader.sampler) / loader.batch_size))))
 
     def get_loaders(self, datasets, tier, batch_size, stimulus_types, sampler):
         if sampler is None:
@@ -91,7 +92,7 @@ class StimulusTypeMixin:
                 log.info('Adding stats_source "{stats_source}" to dataset'.format(**key))
                 dat.stats_source = key['stats_source']
 
-        log.info('Using statistics source ' +  key['stats_source'])
+        log.info('Using statistics source ' + key['stats_source'])
         datasets = self.add_transforms(key, datasets, exclude=exclude_from_normalization)
         loaders = self.get_loaders(datasets, tier, batch_size, stimulus_types, sampler)
         return datasets, loaders
@@ -100,7 +101,7 @@ class StimulusTypeMixin:
 class AreaLayerRawMixin(StimulusTypeMixin):
     def load_data(self, key, tier=None, batch_size=1, key_order=None, stimulus_types=None, sampler=None, **kwargs):
         log.info('Ignoring input arguments: "' + '", "'.join(kwargs.keys()) + '"' + 'when creating datasets')
-go        exclude = key.pop('exclude').split(',')
+        exclude = key.pop('exclude').split(',')
         stimulus_types = key.pop('stimulus_type')
         datasets, loaders = super().load_data(key, tier, batch_size, key_order,
                                               exclude_from_normalization=exclude,
@@ -173,18 +174,18 @@ class DataConfig(ConfigBase, dj.Lookup):
         """
 
         def describe(self, key):
-            return "{brain_area} {layer} on {stimulus_type}. normalize={normalize} on {stats_source} (except '{exclude}')".format(**key)
+            return "{brain_area} {layer} on {stimulus_type}. normalize={normalize} on {stats_source} (except '{exclude}')".format(
+                **key)
 
         @property
         def content(self):
             for p in product(['all'],
                              ['stimulus.Frame', '~stimulus.Frame'],
-                             ['images,responses',''],
+                             ['images,responses', ''],
                              [True],
                              ['L4', 'L2/3'],
                              ['V1', 'LM']):
                 yield dict(zip(self.heading.dependent_attributes, p))
-
 
     class AreaLayerPercentOracle(dj.Part, AreaLayerRawMixin):
         definition = """
@@ -202,7 +203,8 @@ class DataConfig(ConfigBase, dj.Lookup):
         """
 
         def describe(self, key):
-            return "Like AreaLayer but only {percent_low}-{percent_high} percent best oracle neurons computed on {oracle_source}".format(**key)
+            return "Like AreaLayer but only {percent_low}-{percent_high} percent best oracle neurons computed on {oracle_source}".format(
+                **key)
 
         @property
         def content(self):
@@ -211,9 +213,9 @@ class DataConfig(ConfigBase, dj.Lookup):
                              ['images,responses'],
                              [True],
                              list((DataConfig.AreaLayer() & dict(brain_area='V1', layer='L2/3',
-                                                            normalize=True, stats_source='all',
-                                                            stimulus_type='~stimulus.Frame',
-                                                            exclude='images,responses')).fetch('data_hash')),
+                                                                 normalize=True, stats_source='all',
+                                                                 stimulus_type='~stimulus.Frame',
+                                                                 exclude='images,responses')).fetch('data_hash')),
                              ['L2/3'],
                              ['V1'],
                              [25],
@@ -224,9 +226,9 @@ class DataConfig(ConfigBase, dj.Lookup):
                              ['images,responses'],
                              [True],
                              list((DataConfig.AreaLayer() & dict(brain_area='V1', layer='L2/3',
-                                                            normalize=True, stats_source='all',
-                                                            stimulus_type='~stimulus.Frame',
-                                                            exclude='images,responses')).fetch('data_hash')),
+                                                                 normalize=True, stats_source='all',
+                                                                 stimulus_type='~stimulus.Frame',
+                                                                 exclude='images,responses')).fetch('data_hash')),
                              ['L2/3'],
                              ['V1'],
                              [75],
@@ -249,7 +251,8 @@ class DataConfig(ConfigBase, dj.Lookup):
 
                 low, high = np.percentile(pearson, [key['percent_low'], key['percent_high']])
                 selection = (pearson >= low) & (pearson <= high)
-                log.info('Subsampling to {} neurons above {:.2f} and below {} oracle'.format(selection.sum(), low, high))
+                log.info(
+                    'Subsampling to {} neurons above {:.2f} and below {} oracle'.format(selection.sum(), low, high))
                 dataset.transforms.insert(-1, Subsample(np.where(selection)[0]))
 
                 assert np.all(dataset.neurons.unit_ids == units[selection]), 'Units are inconsistent'
@@ -264,28 +267,32 @@ class DataConfig(ConfigBase, dj.Lookup):
         exclude                 : varchar(512)  # what inputs to exclude from normalization
         normalize               : bool          # whether to use a normalize or not
         split_seed              : tinyint       # train/validation random split seed
+        test_idx                : int           # index of unique condition hash
         train_val_ratio         : float         # train/validation split ratio
         -> experiment.Layer
         -> anatomy.Area
         """
 
         def describe(self, key):
-            return "{brain_area} {layer} on {stimulus_type}. normalize={normalize} on {stats_source} (except '{exclude}')".format(**key)
+            return "{brain_area} {layer} on {stimulus_type}. normalize={normalize} on {stats_source} (except '{exclude}')".format(
+                **key)
 
         @property
         def content(self):
             for p in product(['all'],
                              ['~stimulus.Frame'],
-                             ['images,responses',''],
+                             ['images,responses'],
                              [True],
                              [0],
+                             range(100),
                              [0.95],
-                             ['L4', 'L2/3'],
-                             ['V1', 'LM']):
+                             ['L2/3'],
+                             ['V1']):
                 yield dict(zip(self.heading.dependent_attributes, p))
 
-        def load_data(self, key, test_index=0, **kwargs):
+        def load_data(self, key, **kwargs):
             tier = kwargs.pop('tier', None)
+            test_index = key.pop('test_idx')
             sampler = self.get_sampler(tier)
             datasets, loaders = super().load_data(key, tier=None, sampler=sampler, **kwargs)
             if tier is not None:
@@ -293,7 +300,8 @@ class DataConfig(ConfigBase, dj.Lookup):
                     log.info('Filtering dataset {} by tier={}'.format(k, tier))
                     log.info('Splitting by test_index={}'.format(test_index))
                     unique_condition_hashes = np.unique(dataset.info.condition_hash[dataset.types != 'stimulus.Frame'])
-                    assert test_index < unique_condition_hashes.size, 'test_index must be less than {}'.format(unique_condition_hashes.size)
+                    assert test_index < unique_condition_hashes.size, 'test_index must be less than {}'.format(
+                        unique_condition_hashes.size)
                     if tier == 'test':
                         tier_condition_hashes = np.array([unique_condition_hashes[test_index]])
                     else:
