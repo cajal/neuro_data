@@ -47,7 +47,23 @@ class StimulusTypeMixin:
             constraint = constraint & (dataset.tiers == tier)
         return constraint
 
-    def get_loaders(self, datasets, tier, batch_size, stimulus_types):
+    def get_sampler(self, tier):
+        assert tier in ['train', 'validation', 'test', None]
+        if tier == 'train':
+            sampler = SubsetRandomSampler
+        else:
+            sampler = SubsetSequentialSampler
+        return sampler
+
+    def log_loader(self, loader):
+        log.info('Loader sampler is {}'.format(loader.sampler.__class__.__name__))
+        log.info('Number of samples in the loader will be {}'.format(len(loader.sampler)))
+        log.info('Number of batches in the loader will be {}'.format(int(np.ceil(len(loader.sampler) / loader.batch_size))))
+
+    def get_loaders(self, datasets, tier, batch_size, stimulus_types, sampler):
+        if sampler is None:
+            sampler = self.get_sampler(tier)
+
         if not isinstance(stimulus_types, list):
             log.info('Using {} as stimulus type for all datasets'.format(stimulus_types))
             stimulus_types = len(datasets) * [stimulus_types]
@@ -59,22 +75,15 @@ class StimulusTypeMixin:
                        for dataset, stimulus_type in zip(datasets.values(), stimulus_types)]
 
         for (k, dataset), stimulus_type, constraint in zip(datasets.items(), stimulus_types, constraints):
-            log.info('Selecting trials from {} and tier={}'.format(stimulus_type, tier))
+            log.info('Selecting trials from {} and tier={} for dataset {}'.format(stimulus_type, tier, k))
             ix = np.where(constraint)[0]
             log.info('Found {} active trials'.format(constraint.sum()))
-            if tier == 'train':
-                log.info("Configuring random subset sampler for " + k)
-                loaders[k] = DataLoader(dataset, sampler=SubsetRandomSampler(ix), batch_size=batch_size)
-            else:
-                log.info("Configuring sequential subset sampler for " + k)
-                loaders[k] = DataLoader(dataset, sampler=SubsetSequentialSampler(ix), batch_size=batch_size)
-                log.info('Number of samples in the loader will be {}'.format(len(loaders[k].sampler)))
-                log.info('Number of batches in the loader will be {}'.format(
-                    int(np.ceil(len(loaders[k].sampler) / loaders[k].batch_size))))
+            loaders[k] = DataLoader(dataset, sampler=sampler(ix), batch_size=batch_size)
+            self.log_loader(loaders[k])
         return loaders
 
     def load_data(self, key, tier=None, batch_size=1, key_order=None,
-                  exclude_from_normalization=None, stimulus_types=None):
+                  exclude_from_normalization=None, stimulus_types=None, sampler=None):
         log.info('Loading {} dataset with tier={}'.format(self._stimulus_type, tier))
         datasets = StaticMultiDataset().fetch_data(key, key_order=key_order)
         for k, dat in datasets.items():
@@ -84,18 +93,19 @@ class StimulusTypeMixin:
 
         log.info('Using statistics source ' +  key['stats_source'])
         datasets = self.add_transforms(key, datasets, exclude=exclude_from_normalization)
-        loaders = self.get_loaders(datasets, tier, batch_size, stimulus_types=stimulus_types)
+        loaders = self.get_loaders(datasets, tier, batch_size, stimulus_types, sampler)
         return datasets, loaders
 
 
 class AreaLayerRawMixin(StimulusTypeMixin):
-    def load_data(self, key, tier=None, batch_size=1, key_order=None, stimulus_types=None, **kwargs):
+    def load_data(self, key, tier=None, batch_size=1, key_order=None, stimulus_types=None, sampler=None, **kwargs):
         log.info('Ignoring input arguments: "' + '", "'.join(kwargs.keys()) + '"' + 'when creating datasets')
-        exclude = key.pop('exclude').split(',')
+go        exclude = key.pop('exclude').split(',')
         stimulus_types = key.pop('stimulus_type')
         datasets, loaders = super().load_data(key, tier, batch_size, key_order,
                                               exclude_from_normalization=exclude,
-                                              stimulus_types=stimulus_types)
+                                              stimulus_types=stimulus_types,
+                                              sampler=sampler)
 
         log.info('Subsampling to layer "{layer}" and area "{brain_area}"'.format(**key))
         for readout_key, dataset in datasets.items():
@@ -184,11 +194,11 @@ class DataConfig(ConfigBase, dj.Lookup):
         stimulus_type           : varchar(50)   # type of stimulus
         exclude                 : varchar(512)  # what inputs to exclude from normalization
         normalize               : bool          # whether to use a normalize or not
-        (oracle_source) -> master 
+        (oracle_source) -> master
         -> experiment.Layer
         -> anatomy.Area
-        percent_low                 : tinyint       # percent oracle lower cutoff 
-        percent_high                 : tinyint      # percent oracle upper cutoff 
+        percent_low                 : tinyint       # percent oracle lower cutoff
+        percent_high                 : tinyint      # percent oracle upper cutoff
         """
 
         def describe(self, key):
@@ -243,4 +253,60 @@ class DataConfig(ConfigBase, dj.Lookup):
                 dataset.transforms.insert(-1, Subsample(np.where(selection)[0]))
 
                 assert np.all(dataset.neurons.unit_ids == units[selection]), 'Units are inconsistent'
+            return datasets, loaders
+
+    class AreaLayerNoise(dj.Part, AreaLayerRawMixin):
+        definition = """
+        -> master
+        ---
+        stats_source            : varchar(50)   # normalization source
+        stimulus_type           : varchar(50)   # type of stimulus
+        exclude                 : varchar(512)  # what inputs to exclude from normalization
+        normalize               : bool          # whether to use a normalize or not
+        split_seed              : tinyint       # train/validation random split seed
+        train_val_ratio         : float         # train/validation split ratio
+        -> experiment.Layer
+        -> anatomy.Area
+        """
+
+        def describe(self, key):
+            return "{brain_area} {layer} on {stimulus_type}. normalize={normalize} on {stats_source} (except '{exclude}')".format(**key)
+
+        @property
+        def content(self):
+            for p in product(['all'],
+                             ['~stimulus.Frame'],
+                             ['images,responses',''],
+                             [True],
+                             [0],
+                             [0.95],
+                             ['L4', 'L2/3'],
+                             ['V1', 'LM']):
+                yield dict(zip(self.heading.dependent_attributes, p))
+
+        def load_data(self, key, test_index=0, **kwargs):
+            tier = kwargs.pop('tier', None)
+            sampler = self.get_sampler(tier)
+            datasets, loaders = super().load_data(key, tier=None, sampler=sampler, **kwargs)
+            if tier is not None:
+                for k, dataset in datasets.items():
+                    log.info('Filtering dataset {} by tier={}'.format(k, tier))
+                    log.info('Splitting by test_index={}'.format(test_index))
+                    unique_condition_hashes = np.unique(dataset.info.condition_hash[dataset.types != 'stimulus.Frame'])
+                    assert test_index < unique_condition_hashes.size, 'test_index must be less than {}'.format(unique_condition_hashes.size)
+                    if tier == 'test':
+                        tier_condition_hashes = np.array([unique_condition_hashes[test_index]])
+                    else:
+                        train_val_indices = np.flatnonzero(np.arange(unique_condition_hashes.size) != test_index)
+                        train_size = np.round(train_val_indices.size * key['train_val_ratio']).astype(np.int)
+                        np.random.seed(test_index + key['split_seed'])
+                        train_indices = np.random.choice(train_val_indices, train_size, replace=False)
+                        train_indices_bool = np.isin(train_val_indices, train_indices)
+                        if tier == 'train':
+                            tier_condition_hashes = unique_condition_hashes[train_val_indices[train_indices_bool]]
+                        elif tier == 'validation':
+                            tier_condition_hashes = unique_condition_hashes[train_val_indices[~train_indices_bool]]
+                    tier_bool = np.isin(dataset.info.condition_hash, tier_condition_hashes)
+                    loaders[k].sampler.indices = np.flatnonzero(tier_bool)
+                    self.log_loader(loaders[k])
             return datasets, loaders
