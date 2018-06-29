@@ -46,7 +46,22 @@ class StimulusTypeMixin:
             constraint = constraint & (dataset.tiers == tier)
         return constraint
 
-    def get_loaders(self, datasets, tier, batch_size, stimulus_types):
+    def get_sampler(self, tier, indices):
+        assert tier in ['train', 'validation', 'test', None]
+        if tier == 'train':
+            sampler = SubsetRandomSampler(indices)
+        else:
+            sampler = SubsetSequentialSampler(indices)
+        return sampler
+
+    def log_loader(self, loader):
+        log.info('Loader sampler is {}'.format(loader.sampler.__class__.__name__))
+        log.info('Number of samples in the loader will be {}'.format(len(loader.sampler)))
+        log.info('Number of batches in the loader will be {}'.format(int(np.ceil(len(loader.sampler) / loader.batch_size))))
+
+    def get_loaders(self, datasets, tier, batch_size, stimulus_types, loader_tier):
+        if loader_tier is None:
+            loader_tier = tier
         if not isinstance(stimulus_types, list):
             log.info('Using {} as stimulus type for all datasets'.format(stimulus_types))
             stimulus_types = len(datasets) * [stimulus_types]
@@ -58,22 +73,16 @@ class StimulusTypeMixin:
                        for dataset, stimulus_type in zip(datasets.values(), stimulus_types)]
 
         for (k, dataset), stimulus_type, constraint in zip(datasets.items(), stimulus_types, constraints):
-            log.info('Selecting trials from {} and tier={}'.format(stimulus_type, tier))
+            log.info('Selecting trials from {} and tier={} for dataset {}'.format(stimulus_type, tier, k))
             ix = np.where(constraint)[0]
             log.info('Found {} active trials'.format(constraint.sum()))
-            if tier == 'train':
-                log.info("Configuring random subset sampler for " + k)
-                loaders[k] = DataLoader(dataset, sampler=SubsetRandomSampler(ix), batch_size=batch_size)
-            else:
-                log.info("Configuring sequential subset sampler for " + k)
-                loaders[k] = DataLoader(dataset, sampler=SubsetSequentialSampler(ix), batch_size=batch_size)
-                log.info('Number of samples in the loader will be {}'.format(len(loaders[k].sampler)))
-                log.info('Number of batches in the loader will be {}'.format(
-                    int(np.ceil(len(loaders[k].sampler) / loaders[k].batch_size))))
+            sampler = self.get_sampler(loader_tier, ix)
+            loaders[k] = DataLoader(dataset, sampler=sampler, batch_size=batch_size)
+            self.log_loader(loaders[k])
         return loaders
 
     def load_data(self, key, tier=None, batch_size=1, key_order=None,
-                  exclude_from_normalization=None, stimulus_types=None):
+                  exclude_from_normalization=None, stimulus_types=None, loader_tier=None):
         log.info('Loading {} dataset with tier={}'.format(self._stimulus_type, tier))
         datasets = StaticMultiDataset().fetch_data(key, key_order=key_order)
         for k, dat in datasets.items():
@@ -83,17 +92,18 @@ class StimulusTypeMixin:
 
         log.info('Using statistics source ' +  key['stats_source'])
         datasets = self.add_transforms(key, datasets, tier, exclude=exclude_from_normalization)
-        loaders = self.get_loaders(datasets, tier, batch_size, stimulus_types=stimulus_types)
+        loaders = self.get_loaders(datasets, tier, batch_size, stimulus_types, loader_tier)
         return datasets, loaders
 
 
 class AreaLayerRawMixin(StimulusTypeMixin):
-    def load_data(self, key, tier=None, batch_size=1, key_order=None, stimulus_types=None):
+    def load_data(self, key, tier=None, batch_size=1, key_order=None, stimulus_types=None, loader_tier=None):
         exclude = key.pop('exclude').split(',')
         stimulus_types = key.pop('stimulus_type')
         datasets, loaders = super().load_data(key, tier, batch_size, key_order,
                                               exclude_from_normalization=exclude,
-                                              stimulus_types=stimulus_types)
+                                              stimulus_types=stimulus_types,
+                                              loader_tier=loader_tier)
 
         log.info('Subsampling to layer "{layer}" and area "{brain_area}"'.format(**key))
         for readout_key, dataset in datasets.items():
@@ -250,7 +260,7 @@ class DataConfig(ConfigBase, dj.Lookup):
 
         def load_data(self, key, test_index=0, **kwargs):
             tier = kwargs.pop('tier', None)
-            datasets, loaders = super().load_data(key, tier=None, **kwargs)
+            datasets, loaders = super().load_data(key, tier=None, loader_tier=tier, **kwargs)
             if tier is not None:
                 for k, dataset in datasets.items():
                     log.info('Filtering dataset {} by tier={}'.format(k, tier))
@@ -271,7 +281,5 @@ class DataConfig(ConfigBase, dj.Lookup):
                             tier_condition_hashes = unique_condition_hashes[train_val_indices[~train_indices_bool]]
                     tier_bool = np.isin(dataset.info.condition_hash, tier_condition_hashes)
                     loaders[k].sampler.indices = np.flatnonzero(tier_bool)
-                    log.info('Number of samples in the loader will be {}'.format(len(loaders[k].sampler)))
-                    log.info('Number of batches in the loader will be {}'.format(
-                        int(np.ceil(len(loaders[k].sampler) / loaders[k].batch_size))))
+                    self.log_loader(loaders[k])
             return datasets, loaders
