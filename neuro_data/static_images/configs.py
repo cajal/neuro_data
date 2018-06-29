@@ -46,12 +46,12 @@ class StimulusTypeMixin:
             constraint = constraint & (dataset.tiers == tier)
         return constraint
 
-    def get_sampler(self, tier, indices):
+    def get_sampler(self, tier):
         assert tier in ['train', 'validation', 'test', None]
         if tier == 'train':
-            sampler = SubsetRandomSampler(indices)
+            sampler = SubsetRandomSampler
         else:
-            sampler = SubsetSequentialSampler(indices)
+            sampler = SubsetSequentialSampler
         return sampler
 
     def log_loader(self, loader):
@@ -59,9 +59,10 @@ class StimulusTypeMixin:
         log.info('Number of samples in the loader will be {}'.format(len(loader.sampler)))
         log.info('Number of batches in the loader will be {}'.format(int(np.ceil(len(loader.sampler) / loader.batch_size))))
 
-    def get_loaders(self, datasets, tier, batch_size, stimulus_types, loader_tier):
-        if loader_tier is None:
-            loader_tier = tier
+    def get_loaders(self, datasets, tier, batch_size, stimulus_types, sampler):
+        if sampler is None:
+            sampler = self.get_sampler(tier)
+
         if not isinstance(stimulus_types, list):
             log.info('Using {} as stimulus type for all datasets'.format(stimulus_types))
             stimulus_types = len(datasets) * [stimulus_types]
@@ -76,13 +77,12 @@ class StimulusTypeMixin:
             log.info('Selecting trials from {} and tier={} for dataset {}'.format(stimulus_type, tier, k))
             ix = np.where(constraint)[0]
             log.info('Found {} active trials'.format(constraint.sum()))
-            sampler = self.get_sampler(loader_tier, ix)
-            loaders[k] = DataLoader(dataset, sampler=sampler, batch_size=batch_size)
+            loaders[k] = DataLoader(dataset, sampler=sampler(ix), batch_size=batch_size)
             self.log_loader(loaders[k])
         return loaders
 
     def load_data(self, key, tier=None, batch_size=1, key_order=None,
-                  exclude_from_normalization=None, stimulus_types=None, loader_tier=None):
+                  exclude_from_normalization=None, stimulus_types=None, sampler=None):
         log.info('Loading {} dataset with tier={}'.format(self._stimulus_type, tier))
         datasets = StaticMultiDataset().fetch_data(key, key_order=key_order)
         for k, dat in datasets.items():
@@ -92,18 +92,18 @@ class StimulusTypeMixin:
 
         log.info('Using statistics source ' +  key['stats_source'])
         datasets = self.add_transforms(key, datasets, tier, exclude=exclude_from_normalization)
-        loaders = self.get_loaders(datasets, tier, batch_size, stimulus_types, loader_tier)
+        loaders = self.get_loaders(datasets, tier, batch_size, stimulus_types, sampler)
         return datasets, loaders
 
 
 class AreaLayerRawMixin(StimulusTypeMixin):
-    def load_data(self, key, tier=None, batch_size=1, key_order=None, stimulus_types=None, loader_tier=None):
+    def load_data(self, key, tier=None, batch_size=1, key_order=None, stimulus_types=None, sampler=None):
         exclude = key.pop('exclude').split(',')
         stimulus_types = key.pop('stimulus_type')
         datasets, loaders = super().load_data(key, tier, batch_size, key_order,
                                               exclude_from_normalization=exclude,
                                               stimulus_types=stimulus_types,
-                                              loader_tier=loader_tier)
+                                              sampler=sampler)
 
         log.info('Subsampling to layer "{layer}" and area "{brain_area}"'.format(**key))
         for readout_key, dataset in datasets.items():
@@ -260,7 +260,8 @@ class DataConfig(ConfigBase, dj.Lookup):
 
         def load_data(self, key, test_index=0, **kwargs):
             tier = kwargs.pop('tier', None)
-            datasets, loaders = super().load_data(key, tier=None, loader_tier=tier, **kwargs)
+            sampler = self.get_sampler(tier)
+            datasets, loaders = super().load_data(key, tier=None, sampler=sampler, **kwargs)
             if tier is not None:
                 for k, dataset in datasets.items():
                     log.info('Filtering dataset {} by tier={}'.format(k, tier))
