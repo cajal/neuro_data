@@ -701,6 +701,12 @@ class MovieMultiDataset(dj.Manual):
             ('18142-6-3-triple', dj.AndList([
                 dict(animal_id=17358, session=5, scan_idx=3, pipe_version=1, segmentation_method=3, spike_method=5),
                 'preproc_id in (0,1,2)'])),
+            ('9771-1-1-triple', dj.AndList([
+                dict(animal_id=9771, session=1, scan_idx=1, pipe_version=1, segmentation_method=3, spike_method=5),
+                'preproc_id in (0,1,2)'])),
+            ('9771-1-2-triple', dj.AndList([
+                dict(animal_id=9771, session=1, scan_idx=2, pipe_version=1, segmentation_method=3, spike_method=5),
+                'preproc_id in (0,1,2)'])),
         ]
         for group_id, (descr, key) in enumerate(selection):
             entry = dict(group_id=group_id, description=descr)
