@@ -103,5 +103,6 @@ venv.bak/
 # mypy
 .mypy_cache/
 
-# atom remote-sync
-.remote-sync.json
+# vscode
+.vscode/settings.json
+.vscode/sftp.json
