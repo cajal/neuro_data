@@ -234,11 +234,12 @@ class DataConfig(ConfigBase, dj.Lookup):
         -> master
         ---
         stats_source            : varchar(50)   # normalization source
-        stimulus_type           : varchar(50)   # type of stimulus
+        stimulus_type           : varchar(128)  # type of stimulus
         exclude                 : varchar(512)  # what inputs to exclude from normalization
         normalize               : bool          # whether to use a normalize or not
+        test_index              : int           # unique test condition index
         split_seed              : tinyint       # train/validation random split seed
-        train_val_ratio         : float         # train/validation split ratio
+        val_fraction            : float         # fraction of train/val dataset that is reserved for validation
         -> experiment.Layer
         -> anatomy.Area
         """
@@ -249,30 +250,34 @@ class DataConfig(ConfigBase, dj.Lookup):
         @property
         def content(self):
             for p in product(['all'],
-                             ['~stimulus.Frame'],
-                             ['images,responses',''],
+                             ['stimulus.Frame | stimulus.MonetFrame | stimulus.TrippyFrame'],
+                             ['images,responses'],
                              [True],
+                             range(100),
                              [0],
-                             [0.95],
-                             ['L4', 'L2/3'],
-                             ['V1', 'LM']):
+                             [0.115],
+                             ['L2/3'],
+                             ['V1']):
                 yield dict(zip(self.heading.dependent_attributes, p))
 
-        def load_data(self, key, test_index=0, **kwargs):
+        def load_data(self, key, **kwargs):
             tier = kwargs.pop('tier', None)
             sampler = self.get_sampler(tier)
             datasets, loaders = super().load_data(key, tier=None, sampler=sampler, **kwargs)
+            test_index = key['test_index']
             if tier is not None:
                 for k, dataset in datasets.items():
                     log.info('Filtering dataset {} by tier={}'.format(k, tier))
                     log.info('Splitting by test_index={}'.format(test_index))
                     unique_condition_hashes = np.unique(dataset.info.condition_hash[dataset.types != 'stimulus.Frame'])
-                    assert test_index < unique_condition_hashes.size, 'test_index must be less than {}'.format(unique_condition_hashes.size)
+                    assert test_index < unique_condition_hashes.size, \
+                        'test_index must be less than {}'.format(unique_condition_hashes.size)
                     if tier == 'test':
                         tier_condition_hashes = np.array([unique_condition_hashes[test_index]])
+                        tier_bool = np.isin(dataset.info.condition_hash, tier_condition_hashes)
                     else:
                         train_val_indices = np.flatnonzero(np.arange(unique_condition_hashes.size) != test_index)
-                        train_size = np.round(train_val_indices.size * key['train_val_ratio']).astype(np.int)
+                        train_size = np.round(train_val_indices.size * (1-key['val_fraction'])).astype(np.int)
                         np.random.seed(test_index + key['split_seed'])
                         train_indices = np.random.choice(train_val_indices, train_size, replace=False)
                         train_indices_bool = np.isin(train_val_indices, train_indices)
@@ -280,7 +285,10 @@ class DataConfig(ConfigBase, dj.Lookup):
                             tier_condition_hashes = unique_condition_hashes[train_val_indices[train_indices_bool]]
                         elif tier == 'validation':
                             tier_condition_hashes = unique_condition_hashes[train_val_indices[~train_indices_bool]]
-                    tier_bool = np.isin(dataset.info.condition_hash, tier_condition_hashes)
+                        tier_bool = np.logical_or(
+                            np.isin(dataset.info.condition_hash, tier_condition_hashes),
+                            dataset.tiers == tier
+                        )
                     loaders[k].sampler.indices = np.flatnonzero(tier_bool)
                     self.log_loader(loaders[k])
             return datasets, loaders
