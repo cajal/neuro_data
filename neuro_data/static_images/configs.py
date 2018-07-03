@@ -292,10 +292,9 @@ class DataConfig(ConfigBase, dj.Lookup):
 
         def load_data(self, key, **kwargs):
             tier = kwargs.pop('tier', None)
-            test_index = key.pop('test_idx')
+            test_index = key.pop('test_index')
             sampler = self.get_sampler(tier)
             datasets, loaders = super().load_data(key, tier=None, sampler=sampler, **kwargs)
-            test_index = key['test_index']
             if tier is not None:
                 for k, dataset in datasets.items():
                     log.info('Filtering dataset {} by tier={}'.format(k, tier))
