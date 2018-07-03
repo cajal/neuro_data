@@ -22,7 +22,8 @@ schema = dj.schema('neurodata_static_configs', locals())
 class StimulusTypeMixin:
     _stimulus_type = None
 
-    def add_transforms(self, key, datasets, tier, exclude=None):
+    # TODO: add normalize option
+    def add_transforms(self, key, datasets, exclude=None):
         if exclude is not None:
             log.info('Excluding "{}" from normalization'.format('", "'.join(exclude)))
         for k, dataset in datasets.items():
@@ -57,7 +58,8 @@ class StimulusTypeMixin:
     def log_loader(self, loader):
         log.info('Loader sampler is {}'.format(loader.sampler.__class__.__name__))
         log.info('Number of samples in the loader will be {}'.format(len(loader.sampler)))
-        log.info('Number of batches in the loader will be {}'.format(int(np.ceil(len(loader.sampler) / loader.batch_size))))
+        log.info(
+            'Number of batches in the loader will be {}'.format(int(np.ceil(len(loader.sampler) / loader.batch_size))))
 
     def get_loaders(self, datasets, tier, batch_size, stimulus_types, sampler):
         if sampler is None:
@@ -90,14 +92,15 @@ class StimulusTypeMixin:
                 log.info('Adding stats_source "{stats_source}" to dataset'.format(**key))
                 dat.stats_source = key['stats_source']
 
-        log.info('Using statistics source ' +  key['stats_source'])
-        datasets = self.add_transforms(key, datasets, tier, exclude=exclude_from_normalization)
+        log.info('Using statistics source ' + key['stats_source'])
+        datasets = self.add_transforms(key, datasets, exclude=exclude_from_normalization)
         loaders = self.get_loaders(datasets, tier, batch_size, stimulus_types, sampler)
         return datasets, loaders
 
 
 class AreaLayerRawMixin(StimulusTypeMixin):
-    def load_data(self, key, tier=None, batch_size=1, key_order=None, stimulus_types=None, sampler=None):
+    def load_data(self, key, tier=None, batch_size=1, key_order=None, stimulus_types=None, sampler=None, **kwargs):
+        log.info('Ignoring input arguments: "' + '", "'.join(kwargs.keys()) + '"' + 'when creating datasets')
         exclude = key.pop('exclude').split(',')
         stimulus_types = key.pop('stimulus_type')
         datasets, loaders = super().load_data(key, tier, batch_size, key_order,
@@ -110,7 +113,12 @@ class AreaLayerRawMixin(StimulusTypeMixin):
             layers = dataset.neurons.layer
             areas = dataset.neurons.area
             idx = np.where((layers == key['layer']) & (areas == key['brain_area']))[0]
-            dataset.transforms.insert(-1, Subsample(idx))
+            if len(idx) == 0:
+                log.warning('Empty set of neurons. Deleting this key')
+                del datasets[readout_key]
+                del loaders[readout_key]
+            else:
+                dataset.transforms.insert(-1, Subsample(idx))
         return datasets, loaders
 
 
@@ -121,7 +129,7 @@ class DataConfig(ConfigBase, dj.Lookup):
     def data_key(self, key):
         return dict(key, **self.parameters(key))
 
-    def load_data(self, key, oracle=False, **kwargs):
+    def load_data(self, key, cuda=False, oracle=False, **kwargs):
         data_key = self.data_key(key)
         Data = getattr(self, data_key.pop('data_type'))
         datasets, loaders = Data().load_data(data_key, **kwargs)
@@ -145,6 +153,12 @@ class DataConfig(ConfigBase, dj.Lookup):
                 log.warning('Removed the following transforms: "{}"'.format('", "'.join(removed)))
                 loader.batch_sampler = RepeatsBatchSampler(condition_hashes, subset_index=ix)
 
+        log.info('Setting cuda={}'.format(cuda))
+        for dat in datasets.values():
+            for tr in dat.transforms:
+                if isinstance(tr, ToTensor):
+                    tr.cuda = cuda
+
         return datasets, loaders
 
     class AreaLayer(dj.Part, AreaLayerRawMixin):
@@ -160,18 +174,18 @@ class DataConfig(ConfigBase, dj.Lookup):
         """
 
         def describe(self, key):
-            return "{brain_area} {layer} on {stimulus_type}. normalize={normalize} on {stats_source} (except '{exclude}')".format(**key)
+            return "{brain_area} {layer} on {stimulus_type}. normalize={normalize} on {stats_source} (except '{exclude}')".format(
+                **key)
 
         @property
         def content(self):
             for p in product(['all'],
                              ['stimulus.Frame', '~stimulus.Frame'],
-                             ['images,responses',''],
+                             ['images,responses', ''],
                              [True],
                              ['L4', 'L2/3'],
                              ['V1', 'LM']):
                 yield dict(zip(self.heading.dependent_attributes, p))
-
 
     class AreaLayerPercentOracle(dj.Part, AreaLayerRawMixin):
         definition = """
@@ -189,7 +203,8 @@ class DataConfig(ConfigBase, dj.Lookup):
         """
 
         def describe(self, key):
-            return "Like AreaLayer but only {percent_low}-{percent_high} percent best oracle neurons computed on {oracle_source}".format(**key)
+            return "Like AreaLayer but only {percent_low}-{percent_high} percent best oracle neurons computed on {oracle_source}".format(
+                **key)
 
         @property
         def content(self):
@@ -198,13 +213,26 @@ class DataConfig(ConfigBase, dj.Lookup):
                              ['images,responses'],
                              [True],
                              list((DataConfig.AreaLayer() & dict(brain_area='V1', layer='L2/3',
-                                                            normalize=True, stats_source='all',
-                                                            stimulus_type='~stimulus.Frame',
-                                                            exclude='images,responses')).fetch('data_hash')),
+                                                                 normalize=True, stats_source='all',
+                                                                 stimulus_type='~stimulus.Frame',
+                                                                 exclude='images,responses')).fetch('data_hash')),
                              ['L2/3'],
                              ['V1'],
                              [25],
                              [75]):
+                yield dict(zip(self.heading.dependent_attributes, p))
+            for p in product(['all'],
+                             ['stimulus.Frame', '~stimulus.Frame'],
+                             ['images,responses'],
+                             [True],
+                             list((DataConfig.AreaLayer() & dict(brain_area='V1', layer='L2/3',
+                                                                 normalize=True, stats_source='all',
+                                                                 stimulus_type='~stimulus.Frame',
+                                                                 exclude='images,responses')).fetch('data_hash')),
+                             ['L2/3'],
+                             ['V1'],
+                             [75],
+                             [100]):
                 yield dict(zip(self.heading.dependent_attributes, p))
 
         def load_data(self, key, tier=None, batch_size=1, key_order=None, stimulus_types=None):
@@ -223,7 +251,8 @@ class DataConfig(ConfigBase, dj.Lookup):
 
                 low, high = np.percentile(pearson, [key['percent_low'], key['percent_high']])
                 selection = (pearson >= low) & (pearson <= high)
-                log.info('Subsampling to {} neurons above {:.2f} and below {} oracle'.format(selection.sum(), low, high))
+                log.info(
+                    'Subsampling to {} neurons above {:.2f} and below {} oracle'.format(selection.sum(), low, high))
                 dataset.transforms.insert(-1, Subsample(np.where(selection)[0]))
 
                 assert np.all(dataset.neurons.unit_ids == units[selection]), 'Units are inconsistent'
@@ -245,7 +274,8 @@ class DataConfig(ConfigBase, dj.Lookup):
         """
 
         def describe(self, key):
-            return "{brain_area} {layer} on {stimulus_type}. normalize={normalize} on {stats_source} (except '{exclude}')".format(**key)
+            return "{brain_area} {layer} on {stimulus_type}. normalize={normalize} on {stats_source} (except '{exclude}')".format(
+                **key)
 
         @property
         def content(self):
@@ -262,6 +292,7 @@ class DataConfig(ConfigBase, dj.Lookup):
 
         def load_data(self, key, **kwargs):
             tier = kwargs.pop('tier', None)
+            test_index = key.pop('test_idx')
             sampler = self.get_sampler(tier)
             datasets, loaders = super().load_data(key, tier=None, sampler=sampler, **kwargs)
             test_index = key['test_index']

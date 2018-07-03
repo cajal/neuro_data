@@ -40,10 +40,13 @@ class BalancedSubsetSampler(Sampler):
 
         for e, n in c.items():
             c[e] = 1 / n
+        self.types = types
         self.weights = torch.DoubleTensor([c[types[i]] for i in indices])
 
     def __iter__(self):
-        return (self.indices[i] for i in torch.multinomial(self.weights, self.num_samples, self.replacement))
+        selection = torch.multinomial(self.weights, self.num_samples, self.replacement)
+        # print(Counter(self.types[self.indices[i]] for i in selection), len(selection)))
+        return (self.indices[i] for i in selection)
 
     def __len__(self):
         return self.num_samples
