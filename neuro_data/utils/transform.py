@@ -5,3 +5,4 @@ class DataTransform:
 
     def column_transform(self, label):
         return label
+

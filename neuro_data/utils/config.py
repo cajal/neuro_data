@@ -54,3 +54,24 @@ class ConfigBase:
                 return tuple(ret[k] for k in selection)
             else:
                 return ret[selection]
+
+
+    def select_hashes(self):
+        configs = [getattr(self, member) for member in dir(self) if
+                   isclass(getattr(self, member)) and issubclass(getattr(self, member), dj.Part)]
+        print('\n'.join(['({}) {}'.format(i, rel.__name__) for i, rel in enumerate(configs)]))
+
+        choices = input('Please select configuration [comma separated list]: ')
+        choices = list(map(int, choices.split(',')))
+
+        hashes = []
+        for choice in choices:
+            restriction = dict()
+            rel = configs[int(choice)]()
+            while restriction != '':
+                old_restriction = restriction
+                print(old_restriction)
+                print(rel & old_restriction)
+                restriction = input('Please enter a restriction [ENTER for exit]: ')
+            hashes.extend((rel & old_restriction).fetch('{}_hash'.format(self._config_type)))
+        return '{}_hash'.format(self._config_type), hashes
