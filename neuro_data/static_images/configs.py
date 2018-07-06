@@ -266,9 +266,9 @@ class DataConfig(ConfigBase, dj.Lookup):
         stimulus_type           : varchar(128)  # type of stimulus
         exclude                 : varchar(512)  # what inputs to exclude from normalization
         normalize               : bool          # whether to use a normalize or not
-        test_index              : int           # unique test condition index
         split_seed              : tinyint       # train/validation random split seed
-        val_fraction            : float         # fraction of train/val dataset that is reserved for validation
+        train_fraction          : float         # fraction of noise dataset for training
+        val_fraction            : float         # fraction of noise dataset for validation
         -> experiment.Layer
         -> anatomy.Area
         """
@@ -283,42 +283,43 @@ class DataConfig(ConfigBase, dj.Lookup):
                              ['stimulus.Frame | stimulus.MonetFrame | stimulus.TrippyFrame'],
                              ['images,responses'],
                              [True],
-                             range(100),
-                             [0],
-                             [0.115],
+                             [0, 1, 2],
+                             [0.4],
+                             [0.2],
                              ['L2/3'],
                              ['V1']):
                 yield dict(zip(self.heading.dependent_attributes, p))
 
         def load_data(self, key, **kwargs):
             tier = kwargs.pop('tier', None)
-            test_index = key.pop('test_index')
             sampler = self.get_sampler(tier)
             datasets, loaders = super().load_data(key, tier=None, sampler=sampler, **kwargs)
             if tier is not None:
                 for k, dataset in datasets.items():
-                    log.info('Filtering dataset {} by tier={}'.format(k, tier))
-                    log.info('Splitting by test_index={}'.format(test_index))
-                    unique_condition_hashes = np.unique(dataset.info.condition_hash[dataset.types != 'stimulus.Frame'])
-                    assert test_index < unique_condition_hashes.size, \
-                        'test_index must be less than {}'.format(unique_condition_hashes.size)
+                    np.random.seed(key['split_seed'])
+                    train_hashes, val_hashes, test_hashes = [], [], []
+                    for noise_type in ['stimulus.MonetFrame', 'stimulus.TrippyFrame']:
+                        unique_condition_hashes = np.unique(dataset.info.condition_hash[dataset.types == noise_type])
+                        assert unique_condition_hashes.size > 1, 'Dataset does not contain sufficient {}'.format(noise_type)
+                        num_hashes = unique_condition_hashes.size
+                        num_train_hashes = np.round(num_hashes * key['train_fraction']).astype(np.int)
+                        num_val_hashes = np.round(num_hashes * key['val_fraction']).astype(np.int)
+                        train_hashes.append(np.random.choice(
+                            unique_condition_hashes, num_train_hashes, replace=False)) 
+                        val_hashes.append(np.random.choice(
+                            unique_condition_hashes[~np.isin(unique_condition_hashes, train_hashes)], num_val_hashes, replace=False))
+                        test_hashes.append(unique_condition_hashes[
+                            (~np.isin(unique_condition_hashes, train_hashes)) & (~np.isin(unique_condition_hashes, val_hashes))])
+                    cond_hashes = dict(
+                        train=np.concatenate(train_hashes),
+                        validation=np.concatenate(val_hashes),
+                        test=np.concatenate(test_hashes))
                     if tier == 'test':
-                        tier_condition_hashes = np.array([unique_condition_hashes[test_index]])
-                        tier_bool = np.isin(dataset.info.condition_hash, tier_condition_hashes)
+                        tier_bool = np.isin(dataset.info.condition_hash, cond_hashes[tier])
                     else:
-                        train_val_indices = np.flatnonzero(np.arange(unique_condition_hashes.size) != test_index)
-                        train_size = np.round(train_val_indices.size * (1-key['val_fraction'])).astype(np.int)
-                        np.random.seed(test_index + key['split_seed'])
-                        train_indices = np.random.choice(train_val_indices, train_size, replace=False)
-                        train_indices_bool = np.isin(train_val_indices, train_indices)
-                        if tier == 'train':
-                            tier_condition_hashes = unique_condition_hashes[train_val_indices[train_indices_bool]]
-                        elif tier == 'validation':
-                            tier_condition_hashes = unique_condition_hashes[train_val_indices[~train_indices_bool]]
                         tier_bool = np.logical_or(
-                            np.isin(dataset.info.condition_hash, tier_condition_hashes),
-                            dataset.tiers == tier
-                        )
+                            np.isin(dataset.info.condition_hash, cond_hashes[tier]),
+                            dataset.tiers == tier)
                     loaders[k].sampler.indices = np.flatnonzero(tier_bool)
                     self.log_loader(loaders[k])
             return datasets, loaders
