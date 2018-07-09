@@ -49,13 +49,13 @@ class StimulusTypeMixin:
 
     def get_sampler_class(self, tier, balanced=False):
         assert tier in ['train', 'validation', 'test', None]
-        if not balanced:
-            if tier == 'train':
+        if tier == 'train':
+            if not balanced:
                 Sampler = SubsetRandomSampler
             else:
-                Sampler = SubsetSequentialSampler
+                Sampler = BalancedSubsetSampler
         else:
-            Sampler = BalancedSubsetSampler
+            Sampler = SubsetSequentialSampler
         return Sampler
 
     def log_loader(self, loader):
@@ -159,7 +159,7 @@ class AreaLayerNoiseMixin(AreaLayerRawMixin):
                     tier_bool = np.logical_or(
                         np.isin(dataset.info.condition_hash, cond_hashes[tier]),
                         dataset.tiers == tier)
-                if not balanced:
+                if not balanced or tier !='train':
                     loaders[k].sampler.indices = np.flatnonzero(tier_bool)
                 else:
                     loaders[k].sampler.configure_sampler(np.flatnonzero(tier_bool), dataset.types, mode='longest')
