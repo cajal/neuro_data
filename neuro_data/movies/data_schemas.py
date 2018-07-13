@@ -12,7 +12,7 @@ import imageio
 import io
 import numpy as np
 import cv2
-from .schema_brige import *
+from .schema_bridge import *
 from tqdm import tqdm
 from scipy.signal import convolve2d
 from ..utils.data import SplineMovie, FilterMixin, SplineCurve, h5cached, NaNSpline, fill_nans
