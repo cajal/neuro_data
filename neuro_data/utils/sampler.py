@@ -28,7 +28,7 @@ class BalancedSubsetSampler(Sampler):
         indices (list): a list of indices
     """
 
-    def __init__(self, indices, types, mode='shortest'):
+    def configure_sampler(self, indices, types, mode='shortest'):
         self.indices = indices
         c = Counter(types[indices])
         if mode == 'longest':
@@ -42,6 +42,9 @@ class BalancedSubsetSampler(Sampler):
             c[e] = 1 / n
         self.types = types
         self.weights = torch.DoubleTensor([c[types[i]] for i in indices])
+
+    def __init__(self, indices, types, mode='shortest'):
+        self.configure_sampler(indices, types, mode)
 
     def __iter__(self):
         selection = torch.multinomial(self.weights, self.num_samples, self.replacement)
