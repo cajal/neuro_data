@@ -2,6 +2,7 @@ from collections import OrderedDict
 from functools import partial
 from itertools import count
 from pprint import pformat
+import datajoint as dj
 
 from attorch.dataset import H5SequenceSet
 

@@ -20,7 +20,6 @@ STATIC = ['(animal_id=11521 and session=7 and scan_idx in (1,2))',
           '(animal_id=16157 and session=5 and scan_idx in (5,6))',
           '(animal_id=11677 and session=2 and scan_idx=1)'
           ]
-
 UNIQUE_FRAME = {
     'stimulus.Frame': ('image_id', 'image_class'),
     'stimulus.MonetFrame': ('rng_seed','orientation'),
