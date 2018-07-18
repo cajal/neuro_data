@@ -11,11 +11,11 @@ from .data_schemas import StaticMultiDataset, StaticScan
 
 from .. import logger as log
 
-schema = dj.schema('neurodata_static_oracle', locals())
+schema = dj.schema('neurodata_static_stats', locals())
 
 
 @schema
-class Pearson(dj.Computed):
+class Oracle(dj.Computed):
     definition = """
     # oracle computation for static images
 
@@ -58,6 +58,8 @@ class Pearson(dj.Computed):
                 assert np.all(np.abs(np.diff(inputs, axis=0)) == 0), \
                     'Images of oracle trials does not match'
                 r, n = outputs.shape  # responses X neurons
+                log.info('\t    {} responses for {} neurons'.format(r, n))
+                assert r > 4, 'need more than 4 trials for oracle computation'
                 mu = outputs.mean(axis=0, keepdims=True)
                 oracle = (mu - outputs / r) * r / (r - 1)
                 oracles.append(oracle)

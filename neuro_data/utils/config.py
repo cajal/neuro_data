@@ -4,7 +4,7 @@ from pprint import pformat
 import datajoint as dj
 from .data import key_hash, to_native
 from .. import logger as log
-
+_INDENT = '      '
 class ConfigBase:
     _config_type = None
 
@@ -56,12 +56,12 @@ class ConfigBase:
                 return ret[selection]
 
 
-    def select_hashes(self):
+    def select_hashes(self, depth=0):
         configs = [getattr(self, member) for member in dir(self) if
                    isclass(getattr(self, member)) and issubclass(getattr(self, member), dj.Part)]
-        print('\n'.join(['({}) {}'.format(i, rel.__name__) for i, rel in enumerate(configs)]))
+        print('\n'.join(['{}({}) {}'.format(depth * _INDENT, i, rel.__name__) for i, rel in enumerate(configs)]))
 
-        choices = input('Please select configuration [comma separated list]: ')
+        choices = input(depth * _INDENT + 'Please select configuration [comma separated list]: ')
         choices = list(map(int, choices.split(',')))
 
         hashes = []
@@ -70,8 +70,9 @@ class ConfigBase:
             rel = configs[int(choice)]()
             while restriction != '':
                 old_restriction = restriction
-                print(old_restriction)
-                print(rel & old_restriction)
-                restriction = input('Please enter a restriction [ENTER for exit]: ')
+                print(depth * _INDENT + repr(old_restriction))
+                s = repr(rel & old_restriction).replace('\n', '\n' + str(depth * _INDENT))
+                print(str(depth * _INDENT) + s)
+                restriction = input(str(depth * _INDENT) + 'Please enter a restriction [ENTER for exit]: ')
             hashes.extend((rel & old_restriction).fetch('{}_hash'.format(self._config_type)))
         return '{}_hash'.format(self._config_type), hashes

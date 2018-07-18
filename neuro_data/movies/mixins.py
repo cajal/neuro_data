@@ -2,7 +2,7 @@ import datajoint as dj
 import numpy as np
 
 from neuro_data.utils.data import fill_nans
-from .schema_brige import *
+from .schema_bridge import *
 
 class TraceMixin:
     def load_frame_times(self, key):

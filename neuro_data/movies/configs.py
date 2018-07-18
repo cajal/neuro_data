@@ -11,7 +11,7 @@ from ..utils.sampler import SubsetSequentialSampler, BalancedSubsetSampler
 from ..utils.config import ConfigBase
 import datajoint as dj
 from .. import logger as log
-from .schema_brige import experiment, anatomy
+from .schema_bridge import experiment, anatomy
 
 import numpy as np
 from torch.utils.data import DataLoader
@@ -86,7 +86,7 @@ class StimulusTypeMixin:
                 log.info('Shrinking each type in {} sets to same size of {}'.format(tier, min_n))
 
         for (k, dataset), stimulus_type, constraint in zip(datasets.items(), stimulus_types, constraints):
-            log.info('Selecting trials from ' + stimulus_type + ' and tier=' + tier)
+            log.info('Selecting trials from ' + stimulus_type + ' and tier=' + repr(tier))
             ix = np.where(constraint)[0]
             log.info('Found {} active trials'.format(constraint.sum()))
             if tier == 'train':
@@ -170,11 +170,12 @@ class DataConfig(ConfigBase, dj.Lookup):
                 ix = loader.sampler.indices
                 condition_hashes = datasets[readout_key].condition_hashes
                 log.info('Replacing ' + loader.sampler.__class__.__name__ + ' with RepeatsBatchSampler')
-                loader.sampler = None
+                Loader = loader.__class__
+                loaders[readout_key] = Loader(loader.dataset,
+                                              batch_sampler=RepeatsBatchSampler(condition_hashes, subset_index=ix))
 
                 datasets[readout_key].transforms = \
                     [tr for tr in datasets[readout_key].transforms if isinstance(tr, (Subsample, ToTensor))]
-                loader.batch_sampler = RepeatsBatchSampler(condition_hashes, subset_index=ix)
         return datasets, loaders
 
     class AreaLayer(dj.Part, AreaLayerMixin):
