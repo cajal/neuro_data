@@ -136,22 +136,31 @@ class DataConfig(ConfigBase, dj.Lookup):
 
         if oracle:
             log.info('Placing oracle data samplers')
-            for k, loader in loaders.items():
+            for readout_key, loader in loaders.items():
                 ix = loader.sampler.indices
-                condition_hashes = datasets[k].condition_hashes
-                log.info('Replacing {} with RepeatsBatchSampler'.format(loader.sampler.__class__.__name__))
-                loader.sampler = None
+                types = np.unique(datasets[readout_key].types[ix])
+                if len(types) == 1 and types[0] == 'stimulus.Frame':
+                    condition_hashes = datasets[readout_key].info.frame_image_id
+                elif len(types) == 2 and types[0] in ('stimulus.MonetFrame',  'stimulus.TrippyFrame'):
+                    condition_hashes = datasets[readout_key].condition_hashes
+                else:
+                    raise ValueError('Do not recognize types={}'.format(*types))
+                log.info('Replacing ' + loader.sampler.__class__.__name__ + ' with RepeatsBatchSampler')
+                Loader = loader.__class__
+                loaders[readout_key] = Loader(loader.dataset,
+                                              batch_sampler=RepeatsBatchSampler(condition_hashes, subset_index=ix))
 
                 removed = []
                 keep = []
-                for tr in datasets[k].transforms:
+                for tr in datasets[readout_key].transforms:
                     if isinstance(tr, (Subsample, ToTensor)):
                         keep.append(tr)
                     else:
                         removed.append(tr.__class__.__name__)
-                datasets[k].transforms = keep
-                log.warning('Removed the following transforms: "{}"'.format('", "'.join(removed)))
-                loader.batch_sampler = RepeatsBatchSampler(condition_hashes, subset_index=ix)
+                datasets[readout_key].transforms = keep
+                if len(removed) > 0:
+                    log.warning('Removed the following transforms: "{}"'.format('", "'.join(removed)))
+
 
         log.info('Setting cuda={}'.format(cuda))
         for dat in datasets.values():
@@ -236,7 +245,7 @@ class DataConfig(ConfigBase, dj.Lookup):
                 yield dict(zip(self.heading.dependent_attributes, p))
 
         def load_data(self, key, tier=None, batch_size=1, key_order=None, stimulus_types=None):
-            from .oracle import Pearson
+            from .stats import Pearson
             datasets, loaders = super().load_data(key, tier=tier, batch_size=batch_size,
                                                   key_order=key_order, stimulus_types=stimulus_types)
             for rok, dataset in datasets.items():

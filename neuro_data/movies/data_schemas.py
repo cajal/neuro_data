@@ -46,6 +46,7 @@ MOVIESCANS = [  # '(animal_id=16278 and session=11 and scan_idx between 5 and 9)
     'animal_id=17358 and session=9 and scan_idx=1',  # platinum
     platinum.CuratedScan() & dict(animal_id=18142, scan_purpose='trainable_platinum_classic', score=4),
     platinum.CuratedScan() & dict(animal_id=17797, scan_purpose='trainable_platinum_classic') & 'score > 2',
+    'animal_id=16314 and session=3 and scan_idx=1',
 ]
 
 
@@ -706,6 +707,9 @@ class MovieMultiDataset(dj.Manual):
                 'preproc_id in (0,1,2)'])),
             ('9771-1-2-triple', dj.AndList([
                 dict(animal_id=9771, session=1, scan_idx=2, pipe_version=1, segmentation_method=3, spike_method=5),
+                'preproc_id in (0,1,2)'])),
+            ('16314-3-1-triple', dj.AndList([
+                dict(animal_id=16314, session=3, scan_idx=1, pipe_version=1, segmentation_method=3, spike_method=5),
                 'preproc_id in (0,1,2)'])),
         ]
         for group_id, (descr, key) in enumerate(selection):
