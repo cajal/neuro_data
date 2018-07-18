@@ -289,7 +289,7 @@ class DataConfig(ConfigBase, dj.Lookup):
                 yield dict(zip(self.heading.dependent_attributes, p))
 
         def load_data(self, key, tier=None, batch_size=1, key_order=None, stimulus_types=None):
-            from .stats import Pearson
+            from .stats import Oracle
             datasets, loaders = super().load_data(key, tier=tier, batch_size=batch_size,
                                                   key_order=key_order, stimulus_types=stimulus_types)
             for rok, dataset in datasets.items():
@@ -297,7 +297,7 @@ class DataConfig(ConfigBase, dj.Lookup):
 
                 okey = dict(key, **member_key)
                 okey['data_hash'] = okey.pop('oracle_source')
-                units, pearson = (Pearson.UnitScores() & okey).fetch('unit_id', 'pearson')
+                units, pearson = (Oracle.UnitScores() & okey).fetch('unit_id', 'pearson')
                 assert len(pearson) > 0, 'You forgot to populate oracle for data_hash="{}"'.format(key['oracle_source'])
                 assert len(units) == len(dataset.neurons.unit_ids), 'Number of neurons has changed'
                 assert np.all(units == dataset.neurons.unit_ids), 'order of neurons has changed'
