@@ -159,7 +159,8 @@ class DataConfig(ConfigBase, dj.Lookup):
     def data_key(self, key):
         return dict(key, **self.parameters(key))
 
-    def load_data(self, key, oracle=False, **kwargs):
+    def load_data(self, key, oracle=False, keep_transforms=False, **kwargs):
+        assert not keep_transforms or oracle, 'keep_transforms should only be true when oracle is true'
         data_key = self.data_key(key)
         Data = getattr(self, data_key.pop('data_type'))
         datasets, loaders = Data().load_data(data_key, **kwargs)
@@ -174,8 +175,9 @@ class DataConfig(ConfigBase, dj.Lookup):
                 loaders[readout_key] = Loader(loader.dataset,
                                               batch_sampler=RepeatsBatchSampler(condition_hashes, subset_index=ix))
 
-                datasets[readout_key].transforms = \
-                    [tr for tr in datasets[readout_key].transforms if isinstance(tr, (Subsample, ToTensor))]
+                if not keep_transforms:
+                    datasets[readout_key].transforms = \
+                        [tr for tr in datasets[readout_key].transforms if isinstance(tr, (Subsample, ToTensor))]
         return datasets, loaders
 
     class AreaLayer(dj.Part, AreaLayerMixin):
