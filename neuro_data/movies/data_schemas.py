@@ -711,6 +711,9 @@ class MovieMultiDataset(dj.Manual):
             ('16314-3-1-triple', dj.AndList([
                 dict(animal_id=16314, session=3, scan_idx=1, pipe_version=1, segmentation_method=3, spike_method=5),
                 'preproc_id in (0,1,2)'])),
+            ('16314-3-1', [
+                dict(animal_id=16314, session=3, scan_idx=1, preproc_id=0, pipe_version=1, segmentation_method=3,
+                     spike_method=5)]),
         ]
         for group_id, (descr, key) in enumerate(selection):
             entry = dict(group_id=group_id, description=descr)
