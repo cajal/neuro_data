@@ -18,13 +18,15 @@ dj.config['external-data'] = dict(
 
 STATIC = ['(animal_id=11521 and session=7 and scan_idx in (1,2))',
           '(animal_id=16157 and session=5 and scan_idx in (5,6))',
-          '(animal_id=11677 and session=2 and scan_idx=1)'
+          '(animal_id=11677 and session=2 and scan_idx=1)',
+          '(animal_id=16312 and session=3 and scan_idx=20)'
           ]
 
+# set of attributes that uniquely identifies the frame content
 UNIQUE_FRAME = {
     'stimulus.Frame': ('image_id', 'image_class'),
-    'stimulus.MonetFrame': ('rng_seed','orientation'),
-    'stimulus.TrippyFrame': ('rng_seed','orientation'),
+    'stimulus.MonetFrame': ('rng_seed', 'orientation'),
+    'stimulus.TrippyFrame': ('rng_seed',),
 }
 
 experiment = dj.create_virtual_module('experiment', 'pipeline_experiment')
@@ -97,7 +99,7 @@ class StaticScan(dj.Computed):
         return dict((dj.U('segmentation_method', 'pipe_version') \
                      & (meso.ScanSet.Unit() & key)).fetch1(dj.key), **key)
 
-    def _make_tuples(self, key):
+    def make(self, key):
         self.insert(fuse.ScanDone() & key, ignore_extra_fields=True)
         pipe = (fuse.ScanDone() & key).fetch1('pipe')
         pipe = dj.create_virtual_module(pipe, 'pipeline_' + pipe)
@@ -630,7 +632,7 @@ class Eye(dj.Computed, FilterMixin, BehaviorMixin):
     def key_source(self):
         return InputResponse & pupil.FittedContour & stimulus.BehaviorSync
 
-    def _make_tuples(self, scan_key):
+    def make(self, scan_key):
         log.info('Populating '+ pformat(scan_key))
         radius, xy, eye_time = self.load_eye_traces(scan_key)
         frame_times = self.load_frame_times(scan_key)
@@ -698,7 +700,7 @@ class Treadmill(dj.Computed, FilterMixin, BehaviorMixin):
         rel = InputResponse
         return rel & treadmill.Treadmill() & stimulus.BehaviorSync()
 
-    def _make_tuples(self, scan_key):
+    def make(self, scan_key):
         log.info('Populating\n' + pformat(scan_key))
         v, treadmill_time = self.load_treadmill_velocity(scan_key)
         frame_times = self.load_frame_times(scan_key)
@@ -762,6 +764,7 @@ class StaticMultiDataset(dj.Manual):
             ('16157-5-5', dict(animal_id=16157, session=5, scan_idx=5, preproc_id=0)),
             ('16157-5-5', dict(animal_id=16157, session=5, scan_idx=6, preproc_id=0)),
             ('16157-5-5-scaled', dict(animal_id=16157, session=5, scan_idx=5, preproc_id=2)),
+            ('16312-3-20', dict(animal_id=16312, session=3, scan_idx=20, preproc_id=0)),
         ]
         for group_id, (descr, key) in enumerate(selection):
             entry = dict(group_id=group_id, description=descr)
