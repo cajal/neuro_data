@@ -711,6 +711,9 @@ class MovieMultiDataset(dj.Manual):
             ('16314-3-1-triple', dj.AndList([
                 dict(animal_id=16314, session=3, scan_idx=1, pipe_version=1, segmentation_method=3, spike_method=5),
                 'preproc_id in (0,1,2)'])),
+            ('16314-3-1', [
+                dict(animal_id=16314, session=3, scan_idx=1, preproc_id=0, pipe_version=1, segmentation_method=3,
+                     spike_method=5)]),
         ]
         for group_id, (descr, key) in enumerate(selection):
             entry = dict(group_id=group_id, description=descr)
@@ -807,6 +810,44 @@ class MovieSet(H5SequenceSet):
             behavior=np.ones((1, t, 1)) * mean('behavior')[None, None, :],
             responses=np.ones((1, t, 1)) * mean('responses')[None, None, :]
         )
+        return self.transform(self.data_point(*[d[dk] for dk in self.data_groups]), exclude=Subsequence)
+
+    def rf_noise_stim(self, m, t, stats_source='all'):
+        """
+        Generates a Gaussian white noise stimulus filtered with a 3x3 Gaussian filter
+        for the computation of receptive fields. The mean and variance of the Gaussian
+        noise are set to the mean and variance of the stimulus ensemble.
+
+        The behvavior, eye movement statistics, and responses are set to their respective means.
+        Args:
+            m: number of noise samples
+            t: length in time
+
+        Returns: tuple of input, behavior, eye, and response
+
+        """
+        N, c, _, w, h = self.img_shape
+        stat = lambda dk, what: self.statistics['{}/{}/{}'.format(dk, stats_source, what)].value
+        mu, s = stat('inputs', 'mean'), stat('inputs', 'std')
+        h_filt = np.float64([
+            [1 / 16, 1 / 8, 1 / 16],
+            [1 / 8, 1 / 4, 1 / 8],
+            [1 / 16, 1 / 8, 1 / 16]]
+        )
+        noise_input = np.stack([convolve2d(np.random.randn(w, h), h_filt, mode='same')
+                                for _ in range(m * t * c)]).reshape((m, c, t, w, h)) * s + mu
+
+        mean_beh = np.ones((m, t, 1)) * stat('behavior', 'mean')[None, None, :]
+        mean_eye = np.ones((m, t, 1)) * stat('eye_position', 'mean')[None, None, :]
+        mean_resp = np.ones((m, t, 1)) * stat('responses', 'mean')[None, None, :]
+
+        d = dict(
+            inputs=noise_input.astype(np.float32),
+            eye_position=mean_eye.astype(np.float32),
+            behavior=mean_beh.astype(np.float32),
+            responses=mean_resp.astype(np.float32)
+        )
+
         return self.transform(self.data_point(*[d[dk] for dk in self.data_groups]), exclude=Subsequence)
 
     def __getitem__(self, item):

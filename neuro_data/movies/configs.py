@@ -11,7 +11,7 @@ from ..utils.sampler import SubsetSequentialSampler, BalancedSubsetSampler
 from ..utils.config import ConfigBase
 import datajoint as dj
 from .. import logger as log
-from .schema_bridge import experiment, anatomy
+from .schema_bridge import experiment, anatomy, stimulus
 
 import numpy as np
 from torch.utils.data import DataLoader
@@ -42,10 +42,32 @@ class StimulusTypeMixin:
     def get_constraint(self, dataset, stimulus_type, tier=None):
         constraint = np.zeros(len(dataset.types), dtype=bool)
         for const in map(lambda s: s.strip(), stimulus_type.split('|')):
+            if '(' in const:
+                start, stop = const.index('('), const.index(')')
+                const, modifier = const[:start], const[start+1:stop]
+                assert const == 'stimulus.Clip', 'Do not support modifiers for movies other than stimulus.Clip'
+            else:
+                modifier = None
+
             if const.startswith('~'):
                 tmp = (dataset.types != const[1:])
             else:
                 tmp = (dataset.types == const)
+
+            if modifier is not None:
+                if modifier.startswith('~'):
+                    comp = '<>'
+                    modifier = modifier[1:]
+                else:
+                    comp = '='
+
+                rhashes = (stimulus.Clip() * stimulus.Movie()
+                           & 'movie_class {} "{}"'.format(comp, modifier)).fetch('condition_hash')
+                tmp &= np.isin(dataset.condition_hashes, rhashes)
+                ch = dataset.condition_hashes[tmp]
+                rel = stimulus.Clip * stimulus.Movie & 'condition_hash in ("{}")'.format('","'.join(ch))
+                log.info('\tRestricted movie classes are: {}'.format(', '.join(np.unique(rel.fetch('movie_class')))))
+
             constraint = constraint | tmp
         if tier is not None:
             constraint = constraint & (dataset.tiers == tier)
@@ -159,7 +181,8 @@ class DataConfig(ConfigBase, dj.Lookup):
     def data_key(self, key):
         return dict(key, **self.parameters(key))
 
-    def load_data(self, key, oracle=False, **kwargs):
+    def load_data(self, key, oracle=False, keep_transforms=False, **kwargs):
+        assert not keep_transforms or oracle, 'keep_transforms should only be true when oracle is true'
         data_key = self.data_key(key)
         Data = getattr(self, data_key.pop('data_type'))
         datasets, loaders = Data().load_data(data_key, **kwargs)
@@ -174,8 +197,9 @@ class DataConfig(ConfigBase, dj.Lookup):
                 loaders[readout_key] = Loader(loader.dataset,
                                               batch_sampler=RepeatsBatchSampler(condition_hashes, subset_index=ix))
 
-                datasets[readout_key].transforms = \
-                    [tr for tr in datasets[readout_key].transforms if isinstance(tr, (Subsample, ToTensor))]
+                if not keep_transforms:
+                    datasets[readout_key].transforms = \
+                        [tr for tr in datasets[readout_key].transforms if isinstance(tr, (Subsample, ToTensor))]
         return datasets, loaders
 
     class AreaLayer(dj.Part, AreaLayerMixin):
@@ -199,7 +223,7 @@ class DataConfig(ConfigBase, dj.Lookup):
         @property
         def content(self):
             for p in product(['all'],
-                             ['stimulus.Clip', '~stimulus.Clip'],
+                             ['stimulus.Clip', '~stimulus.Clip', 'stimulus.Clip(unreal)', 'stimulus.Clip(~unreal)'],
                              ['inputs,responses'],
                              [True],
                              [30 * 5],
@@ -230,12 +254,15 @@ class DataConfig(ConfigBase, dj.Lookup):
         @property
         def content(self):
             for p in product(['all'],
-                             ['stimulus.Clip,~stimulus.Clip,stimulus.Clip|~stimulus.Clip'],
+                             ['stimulus.Clip,~stimulus.Clip,stimulus.Clip|~stimulus.Clip',
+                              '~stimulus.Clip,stimulus.Clip,stimulus.Clip|~stimulus.Clip',
+                              'stimulus.Clip(unreal),stimulus.Clip(~unreal),stimulus.Clip',
+                              'stimulus.Clip(~unreal),stimulus.Clip(unreal),stimulus.Clip'],
                              ['inputs,responses'],
                              [True],
                              [30 * 5],
                              [True],
-                             [True, False],
+                             [False],
                              ['L2/3'],
                              ['V1']):
                 yield dict(zip(self.heading.dependent_attributes, p))

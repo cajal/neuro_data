@@ -759,8 +759,11 @@ class StaticMultiDataset(dj.Manual):
             ('11521-7-1', dict(animal_id=11521, session=7, scan_idx=1, preproc_id=0)),
             ('11521-7-2', dict(animal_id=11521, session=7, scan_idx=2, preproc_id=0)),
             ('16157-5-5', dict(animal_id=16157, session=5, scan_idx=5, preproc_id=0)),
-            ('16157-5-5', dict(animal_id=16157, session=5, scan_idx=6, preproc_id=0)),
+            ('16157-5-6', dict(animal_id=16157, session=5, scan_idx=6, preproc_id=0)),
             ('16157-5-5-scaled', dict(animal_id=16157, session=5, scan_idx=5, preproc_id=2)),
+            ('16312-3-20', dict(animal_id=16312, session=3, scan_idx=20, preproc_id=0)),
+            ('11521-7-1-scaled', dict(animal_id=11521, session=7, scan_idx=1, preproc_id=2)),
+            ('11521-7-2-scaled', dict(animal_id=11521, session=7, scan_idx=2, preproc_id=2)),
         ]
         for group_id, (descr, key) in enumerate(selection):
             entry = dict(group_id=group_id, description=descr)
