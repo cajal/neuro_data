@@ -86,8 +86,7 @@ class StimulusTypeMixin:
                 sampler = Sampler(ix, dataset.types, mode='longest')
             else:
                 sampler = Sampler(ix)
-            loaders[k] = DataLoader(dataset, sampler=sampler, 
-                                    batch_size=batch_size, num_workers=2)
+            loaders[k] = DataLoader(dataset, sampler=sampler, batch_size=batch_size)
             self.log_loader(loaders[k])
         return loaders
 
