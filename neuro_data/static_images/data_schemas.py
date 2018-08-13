@@ -3,7 +3,6 @@ from functools import partial
 from itertools import count, compress
 from pprint import pformat
 
-import cv2
 import datajoint as dj
 import numpy as np
 import pandas as pd
@@ -264,6 +263,8 @@ class Frame(dj.Computed):
             raise KeyError('Cannot find matching stimulus relation')
 
     def make(self, key):
+        import cv2
+
         log.info(80 * '-')
         log.info('Processing key ' + pformat(dict(key)))
         imgsize = (Preprocessing() & key).fetch1('col', 'row')  # target size of movie frames
