@@ -2,19 +2,18 @@ from collections import OrderedDict
 from itertools import product, count
 from pprint import pformat
 
+import datajoint as dj
+import numpy as np
 from attorch.dataloaders import RepeatsBatchSampler
+from torch.utils.data import DataLoader
 from torch.utils.data.sampler import SubsetRandomSampler
 
 from .data_schemas import MovieMultiDataset
+from .schema_bridge import stimulus
 from .transforms import Subsample, Normalizer, ToTensor, Subsequence
-from ..utils.sampler import SubsetSequentialSampler, BalancedSubsetSampler
-from ..utils.config import ConfigBase
-import datajoint as dj
 from .. import logger as log
-from .schema_bridge import experiment, anatomy
-
-import numpy as np
-from torch.utils.data import DataLoader
+from ..utils.config import ConfigBase
+from ..utils.sampler import SubsetSequentialSampler, BalancedSubsetSampler
 
 schema = dj.schema('neurodata_movie_configs', locals())
 
@@ -42,10 +41,32 @@ class StimulusTypeMixin:
     def get_constraint(self, dataset, stimulus_type, tier=None):
         constraint = np.zeros(len(dataset.types), dtype=bool)
         for const in map(lambda s: s.strip(), stimulus_type.split('|')):
+            if '(' in const:
+                start, stop = const.index('('), const.index(')')
+                const, modifier = const[:start], const[start + 1:stop]
+                assert const == 'stimulus.Clip', 'Do not support modifiers for movies other than stimulus.Clip'
+            else:
+                modifier = None
+
             if const.startswith('~'):
                 tmp = (dataset.types != const[1:])
             else:
                 tmp = (dataset.types == const)
+
+            if modifier is not None:
+                if modifier.startswith('~'):
+                    comp = '<>'
+                    modifier = modifier[1:]
+                else:
+                    comp = '='
+
+                rhashes = (stimulus.Clip() * stimulus.Movie()
+                           & 'movie_class {} "{}"'.format(comp, modifier)).fetch('condition_hash')
+                tmp &= np.isin(dataset.condition_hashes, rhashes)
+                ch = dataset.condition_hashes[tmp]
+                rel = stimulus.Clip * stimulus.Movie & 'condition_hash in ("{}")'.format('","'.join(ch))
+                log.info('\tRestricted movie classes are: {}'.format(', '.join(np.unique(rel.fetch('movie_class')))))
+
             constraint = constraint | tmp
         if tier is not None:
             constraint = constraint & (dataset.tiers == tier)
@@ -60,6 +81,9 @@ class StimulusTypeMixin:
         elif len(stimulus_types) == 1 and len(datasets) > 1:
             log.info('Using ' + stimulus_types[0] + ' as stimulus type for all datasets')
             stimulus_types = len(datasets) * stimulus_types
+        elif len(datasets) % len(stimulus_types) == 0:
+            log.info('Using [' + ",".join(stimulus_types) + '] as stimulus type for all datasets')
+            stimulus_types = (len(datasets) // len(stimulus_types)) * stimulus_types
         else:
             assert len(stimulus_types) == len(datasets), \
                 'Number of requested types does not match number of datasets. You need to choose a different group'
@@ -151,7 +175,6 @@ class AreaLayerMixin(StimulusTypeMixin):
         return datasets, loaders
 
 
-
 @schema
 class DataConfig(ConfigBase, dj.Lookup):
     _config_type = 'data'
@@ -201,7 +224,7 @@ class DataConfig(ConfigBase, dj.Lookup):
         @property
         def content(self):
             for p in product(['all'],
-                             ['stimulus.Clip', '~stimulus.Clip'],
+                             ['stimulus.Clip', '~stimulus.Clip', 'stimulus.Clip(unreal)', 'stimulus.Clip(~unreal)'],
                              ['inputs,responses'],
                              [True],
                              [30 * 5],
@@ -232,12 +255,15 @@ class DataConfig(ConfigBase, dj.Lookup):
         @property
         def content(self):
             for p in product(['all'],
-                             ['stimulus.Clip,~stimulus.Clip,stimulus.Clip|~stimulus.Clip'],
+                             ['stimulus.Clip,~stimulus.Clip,stimulus.Clip|~stimulus.Clip',
+                              '~stimulus.Clip,stimulus.Clip,stimulus.Clip|~stimulus.Clip',
+                              'stimulus.Clip(unreal),stimulus.Clip(~unreal),stimulus.Clip',
+                              'stimulus.Clip(~unreal),stimulus.Clip(unreal),stimulus.Clip'],
                              ['inputs,responses'],
                              [True],
                              [30 * 5],
                              [True],
-                             [True, False],
+                             [False],
                              ['L2/3'],
                              ['V1']):
                 yield dict(zip(self.heading.dependent_attributes, p))
