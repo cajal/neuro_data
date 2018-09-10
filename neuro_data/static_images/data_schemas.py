@@ -795,7 +795,7 @@ class StaticMultiDataset(dj.Manual):
                       'responses']
             log.info('Data will be ({})'.format(','.join(data_names)))
 
-            h5filename = InputResponse().get_hdf5_filename(mkey)
+            h5filename = InputResponse().get_filename(mkey)
             log.info('Loading dataset {} --> {}'.format(name, h5filename))
             ret[name] = StaticImageSet(h5filename, *data_names)
         if key_order is not None:
