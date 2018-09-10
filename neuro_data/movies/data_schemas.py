@@ -1,21 +1,21 @@
+import io
 from collections import OrderedDict
 from functools import partial
 from itertools import count
 from pprint import pformat
 
+import cv2
+import imageio
+import numpy as np
 from attorch.dataset import H5SequenceSet
+from scipy.signal import convolve2d
+from tqdm import tqdm
 
 from neuro_data.movies.transforms import Subsequence
 from .mixins import TraceMixin
-from .. import logger as log
-import imageio
-import io
-import numpy as np
-import cv2
 from .schema_bridge import *
-from tqdm import tqdm
-from scipy.signal import convolve2d
-from ..utils.data import SplineMovie, FilterMixin, SplineCurve, h5cached, NaNSpline, fill_nans
+from .. import logger as log
+from ..utils.data import SplineMovie, FilterMixin, SplineCurve, NaNSpline, fill_nans, dircached, h5cached
 
 dj.config['external-data'] = dict(
     protocol='file',
@@ -47,6 +47,7 @@ MOVIESCANS = [  # '(animal_id=16278 and session=11 and scan_idx between 5 and 9)
     platinum.CuratedScan() & dict(animal_id=18142, scan_purpose='trainable_platinum_classic', score=4),
     platinum.CuratedScan() & dict(animal_id=17797, scan_purpose='trainable_platinum_classic') & 'score > 2',
     'animal_id=16314 and session=3 and scan_idx=1',
+    experiment.Scan() & (stimulus.Trial & stimulus.Condition() & stimulus.Monet()) & dict(animal_id=8973)
 ]
 
 
@@ -279,7 +280,37 @@ class MovieClips(dj.Computed, FilterMixin):
         self.insert1(dict(key, frames=movie.transpose([2, 0, 1]), sample_times=samps, fps0=frame_rate))
 
 
-# @h5cached('/data/all_movie_data/', mode='groups')
+
+@schema
+class OpticFlow(dj.Computed, FilterMixin):
+    definition = """
+    # movies subsampled
+
+    -> MovieClips
+    ---
+    flow                : external-data   # optic flow
+    """
+
+
+    @property
+    def key_source(self):
+        return stimulus.Condition() * Preprocessing() & ConditionTier()
+
+
+    def make(self, key):
+        log.info(80 * '-')
+        log.info('Processing key ' + repr(key))
+        import cv2
+        movie = (MovieClips & key).fetch1('frames')
+        flow = []
+        for prev, next in tqdm(zip(movie[0:-1], movie[1:])):
+            flow.append(cv2.calcOpticalFlowFarneback(prev, next, None, 0.5, 3, 15, 3, 5,1.2, 0))
+        flow.insert(0, 0*flow[0])
+
+        self.insert1(dict(key, flow=np.stack(flow)))
+
+
+
 @h5cached('/external/cache/', mode='groups', transfer_to_tmp=False,
           file_format='movies{animal_id}-{session}-{scan_idx}-pre{preproc_id}-pipe{pipe_version}-seg{segmentation_method}-spike{spike_method}.h5')
 @schema
@@ -506,8 +537,6 @@ class InputResponse(dj.Computed, FilterMixin, TraceMixin):
         return retval
 
 
-#
-
 class BehaviorMixin:
     def load_eye_traces(self, key):
         r, center = (pupil.FittedContour.Ellipse() & key).fetch('major_r', 'center', order_by='frame_id ASC')
@@ -711,6 +740,13 @@ class MovieMultiDataset(dj.Manual):
             ('16314-3-1-triple', dj.AndList([
                 dict(animal_id=16314, session=3, scan_idx=1, pipe_version=1, segmentation_method=3, spike_method=5),
                 'preproc_id in (0,1,2)'])),
+            ('16314-3-1', [
+                dict(animal_id=16314, session=3, scan_idx=1, preproc_id=0, pipe_version=1, segmentation_method=3,
+                     spike_method=5)]),
+            ('18142-platinum', [
+                dict(animal_id=18142, pipe_version=1, segmentation_method=3, spike_method=5)]),
+            ('8973-golden', dj.AndList(['animal_id=8973 and session=1 and scan_idx in (2,3,4,5,6,9,11,12)',
+                                        dict(pipe_version=1, segmentation_method=3, spike_method=5, preproc_id=0)]))
         ]
         for group_id, (descr, key) in enumerate(selection):
             entry = dict(group_id=group_id, description=descr)
@@ -741,9 +777,11 @@ class MovieMultiDataset(dj.Manual):
                       'responses']
             log.info('Data will be ({})'.format(','.join(data_names)))
 
-            h5filename = InputResponse().get_hdf5_filename(mkey)
-            log.info('Loading dataset ' + name + '-->' + h5filename)
-            ret[name] = MovieSet(h5filename, *data_names)
+            filename = InputResponse().get_filename(mkey)
+            log.info('Loading dataset ' + name + '-->' + filename)
+
+            ret[name] = MovieSet(filename, *data_names)
+
         if key_order is not None:
             log.info('Reordering datasets according to given key order')
             ret = OrderedDict([
@@ -807,6 +845,44 @@ class MovieSet(H5SequenceSet):
             behavior=np.ones((1, t, 1)) * mean('behavior')[None, None, :],
             responses=np.ones((1, t, 1)) * mean('responses')[None, None, :]
         )
+        return self.transform(self.data_point(*[d[dk] for dk in self.data_groups]), exclude=Subsequence)
+
+    def rf_noise_stim(self, m, t, stats_source='all'):
+        """
+        Generates a Gaussian white noise stimulus filtered with a 3x3 Gaussian filter
+        for the computation of receptive fields. The mean and variance of the Gaussian
+        noise are set to the mean and variance of the stimulus ensemble.
+
+        The behvavior, eye movement statistics, and responses are set to their respective means.
+        Args:
+            m: number of noise samples
+            t: length in time
+
+        Returns: tuple of input, behavior, eye, and response
+
+        """
+        N, c, _, w, h = self.img_shape
+        stat = lambda dk, what: self.statistics['{}/{}/{}'.format(dk, stats_source, what)].value
+        mu, s = stat('inputs', 'mean'), stat('inputs', 'std')
+        h_filt = np.float64([
+            [1 / 16, 1 / 8, 1 / 16],
+            [1 / 8, 1 / 4, 1 / 8],
+            [1 / 16, 1 / 8, 1 / 16]]
+        )
+        noise_input = np.stack([convolve2d(np.random.randn(w, h), h_filt, mode='same')
+                                for _ in range(m * t * c)]).reshape((m, c, t, w, h)) * s + mu
+
+        mean_beh = np.ones((m, t, 1)) * stat('behavior', 'mean')[None, None, :]
+        mean_eye = np.ones((m, t, 1)) * stat('eye_position', 'mean')[None, None, :]
+        mean_resp = np.ones((m, t, 1)) * stat('responses', 'mean')[None, None, :]
+
+        d = dict(
+            inputs=noise_input.astype(np.float32),
+            eye_position=mean_eye.astype(np.float32),
+            behavior=mean_beh.astype(np.float32),
+            responses=mean_resp.astype(np.float32)
+        )
+
         return self.transform(self.data_point(*[d[dk] for dk in self.data_groups]), exclude=Subsequence)
 
     def __getitem__(self, item):
