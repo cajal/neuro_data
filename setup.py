@@ -12,6 +12,5 @@ setup(
     author_email='sinz@bcm.edu',
     url='https://github.com/cajal/neuro_data',
     packages=find_packages(exclude=[]),
-    install_requires=['numpy', 'tqdm', 'gitpython', 'python-twitter', 'scikit-image', 'datajoint', 'atflow', 'attorch',
-                      'h5py'],
+    install_requires=['numpy', 'tqdm', 'datajoint', 'attorch', 'pandas', 'h5py'],
 )
