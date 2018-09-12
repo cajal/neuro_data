@@ -15,7 +15,7 @@ from neuro_data.movies.transforms import Subsequence
 from .mixins import TraceMixin
 from .schema_bridge import *
 from .. import logger as log
-from ..utils.data import SplineMovie, FilterMixin, SplineCurve, NaNSpline, fill_nans, dircached, h5cached
+from ..utils.data import SplineMovie, FilterMixin, SplineCurve, NaNSpline, fill_nans, h5cached
 
 dj.config['external-data'] = dict(
     protocol='file',
@@ -47,7 +47,9 @@ MOVIESCANS = [  # '(animal_id=16278 and session=11 and scan_idx between 5 and 9)
     platinum.CuratedScan() & dict(animal_id=18142, scan_purpose='trainable_platinum_classic', score=4),
     platinum.CuratedScan() & dict(animal_id=17797, scan_purpose='trainable_platinum_classic') & 'score > 2',
     'animal_id=16314 and session=3 and scan_idx=1',
-    experiment.Scan() & (stimulus.Trial & stimulus.Condition() & stimulus.Monet()) & dict(animal_id=8973)
+    experiment.Scan() & (stimulus.Trial & stimulus.Condition() & stimulus.Monet()) & dict(animal_id=8973),
+    'animal_id=18979 and session=2 and scan_idx=7',
+    'animal_id=18799 and session=3 and scan_idx=14'
 ]
 
 
@@ -195,9 +197,10 @@ class MovieClips(dj.Computed, FilterMixin):
     -> stimulus.Condition
     -> Preprocessing
     ---
-    fps0                 : float      # original framerate
+    fps0                 : float           # original framerate
     frames               : external-data   # input movie downsampled
     sample_times         : external-data   # sample times for the new frames
+    duration             : float           # duration in seconds
     """
 
     def get_frame_rate(self, key):
@@ -278,37 +281,6 @@ class MovieClips(dj.Computed, FilterMixin):
 
         # --- generate response sampling points and sample movie frames relative to it
         self.insert1(dict(key, frames=movie.transpose([2, 0, 1]), sample_times=samps, fps0=frame_rate))
-
-
-
-@schema
-class OpticFlow(dj.Computed, FilterMixin):
-    definition = """
-    # movies subsampled
-
-    -> MovieClips
-    ---
-    flow                : external-data   # optic flow
-    """
-
-
-    @property
-    def key_source(self):
-        return stimulus.Condition() * Preprocessing() & ConditionTier()
-
-
-    def make(self, key):
-        log.info(80 * '-')
-        log.info('Processing key ' + repr(key))
-        import cv2
-        movie = (MovieClips & key).fetch1('frames')
-        flow = []
-        for prev, next in tqdm(zip(movie[0:-1], movie[1:])):
-            flow.append(cv2.calcOpticalFlowFarneback(prev, next, None, 0.5, 3, 15, 3, 5,1.2, 0))
-        flow.insert(0, 0*flow[0])
-
-        self.insert1(dict(key, flow=np.stack(flow)))
-
 
 
 @h5cached('/external/cache/', mode='groups', transfer_to_tmp=False,
@@ -418,9 +390,9 @@ class InputResponse(dj.Computed, FilterMixin, TraceMixin):
                                           & key & '(um_z >= z_start) and (um_z < z_end)')
 
         # --- fetch all stimuli and classify into train/test/val
-        inputs, hashes, stim_keys, tiers, types, trial_idx = \
+        inputs, hashes, stim_keys, tiers, types, trial_idx, durations = \
             (data_rel & key).fetch('frames', 'condition_hash', dj.key,
-                                   'tier', 'stimulus_type', 'trial_idx',
+                                   'tier', 'stimulus_type', 'trial_idx', 'duration',
                                    order_by='condition_hash ASC, trial_idx ASC')
         train_idx = np.array([t == 'train' for t in tiers], dtype=bool)
         test_idx = np.array([t == 'test' for t in tiers], dtype=bool)
@@ -526,6 +498,7 @@ class InputResponse(dj.Computed, FilterMixin, TraceMixin):
                       val_idx=val_idx,
                       test_idx=test_idx,
                       condition_hashes=hashes.astype('S'),
+                      durations = durations.astype(np.float32),
                       trial_idx=trial_idx.astype(np.uint32),
                       neurons=neurons,
                       tiers=tiers.astype('S'),
