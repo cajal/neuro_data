@@ -9,10 +9,10 @@ from torch.utils.data import DataLoader
 from torch.utils.data.sampler import SubsetRandomSampler
 
 from .data_schemas import MovieMultiDataset
-from .schema_bridge import stimulus
+from .schema_bridge import stimulus, experiment, anatomy
 from .transforms import Subsample, Normalizer, ToTensor, Subsequence
 from .. import logger as log
-from ..utils.config import ConfigBase
+from ..utils.config import ConfigBase, fixed_seed
 from ..utils.sampler import SubsetSequentialSampler, BalancedSubsetSampler
 
 schema = dj.schema('neurodata_movie_configs', locals())
@@ -231,6 +231,92 @@ class DataConfig(ConfigBase, dj.Lookup):
                              ['L2/3'],
                              ['V1']):
                 yield dict(zip(self.heading.dependent_attributes, p))
+
+    class AreaLayerSubset(dj.Part, StimulusTypeMixin):
+        definition = """
+        -> master
+        ---
+        stats_source            : varchar(50)  # normalization source
+        stimulus_type           : varchar(512)  # type of stimulus
+        exclude                 : varchar(512) # what inputs to exclude from normalization
+        normalize               : bool         # whether to use a normalize or not
+        train_seq_len           : smallint     # training sequence length in frames
+        -> experiment.Layer
+        -> anatomy.Area
+        data_seed               : int          # seed for subset selection
+        seconds                 : int          # maximal length in seconds
+        neurons                 : int          # maximal length in seconds
+        """
+        _exclude_from_normalization = ['inputs', 'responses']
+
+        def describe(self, key):
+            return """subset from {brain_area} {layer} on {stimulus_type}. normalize={normalize}
+            on {stats_source} (except '{exclude}') with {seconds}s duration and {neurons} neurons
+             and seed {data_seed}""".format(
+                **key)
+
+        @property
+        def content(self):
+            for p in product(['all'],
+                             ['stimulus.Clip|~stimulus.Clip'],
+                             ['inputs,responses'],
+                             [True],
+                             [30 * 5],
+                             ['L2/3'],
+                             ['V1'],
+                             [42],
+                             [s * 60 for s in [20, 40, 60]],
+                             [100, 250, 500, 1000, 2000]
+                             ):
+                yield dict(zip(self.heading.dependent_attributes, p))
+
+        def load_data(self, key, tier=None, batch_size=1, key_order=None, cuda=False, **kwargs):
+            log.info('Ignoring {} when loading {}'.format(pformat(kwargs, indent=20), self.__class__.__name__))
+
+            datasets, loaders = super().load_data(key, key.pop('stimulus_type').split(','),
+                                                  tier, batch_size, key_order,
+                                                  exclude_from_normalization=key.pop('exclude').split(','),
+                                                  normalize=key.pop('normalize'),
+                                                  balanced=False,
+                                                  shrink_to_same_size=False,
+                                                  cuda=cuda)
+            log.info('Subsampling to layer "{layer}", area "{brain_area}", {neurons} neurons'.format(**key))
+
+            for rok, loader, dataset in zip(loaders.keys(), loaders.values(), datasets.values()):
+
+                with fixed_seed(key['data_seed']):
+                    # subsample neurons
+                    layers = dataset.neurons.layer
+                    areas = dataset.neurons.area
+                    idx = np.where((layers == key['layer']) & (areas == key['brain_area']))[0]
+                    assert len(idx) >= key['neurons'], 'number of requested neurons exceeds available neurons'
+                    selection = np.random.permutation(len(idx))[:key['neurons']]
+                    idx = idx[selection]
+                    dataset.transforms.insert(-1, Subsample(idx))
+
+                if tier is None or tier == 'train':
+                    log.info('Subsampling to {seconds}s of trial time'.format(**key))
+                    with fixed_seed(key['data_seed']):
+                        idx = loader.sampler.indices
+                        durations = dataset.durations[idx]
+
+                        assert durations.sum() > key['seconds'], 'trial durations are not enough to cover {seconds}s'.format(**key)
+
+                        selection = np.random.permutation(len(durations))
+                        total_duration = np.cumsum(durations[selection])
+                        selection = selection[total_duration <= key['seconds']]
+
+
+                        gap = durations[selection].sum() - key['seconds']
+                        if gap != 0:
+                            log.warning('{gap}s gap between requested stimulus length and actual stimulus length.'.format(gap=gap))
+                        log.info('Using {} trials'.format((total_duration <= key['seconds'])).sum())
+                        log.info('Replacing ' + loader.sampler.__class__.__name__ + ' with RandomSubsetSampler')
+                        Loader = loader.__class__
+                        loaders[rok] = Loader(loader.dataset, sampler=SubsetRandomSampler(idx[selection]))
+
+
+            return datasets, loaders
 
     class AreaLayerMultiSource(dj.Part, AreaLayerMixin):
         definition = """
