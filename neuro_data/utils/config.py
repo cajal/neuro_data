@@ -52,7 +52,7 @@ class ConfigBase:
 
                     if not key in rel().proj():
                         self.insert1(dict(key, **{self._config_type + '_description':rel.describe(key)}),
-                                     ignore_extra_fields=True)
+                                     ignore_extra_fields=True, skip_duplicates=True)
                         log.info('Inserting\n' + pformat(key, indent=20))
                         rel().insert1(key,ignore_extra_fields=True)
 
