@@ -232,6 +232,61 @@ class DataConfig(ConfigBase, dj.Lookup):
                              ['V1']):
                 yield dict(zip(self.heading.dependent_attributes, p))
 
+    class AreaLayerPercentOracle(dj.Part, AreaLayerMixin):
+        definition = """
+        -> master
+        ---
+        stats_source            : varchar(50)  # normalization source
+        stimulus_type           : varchar(512)  # type of stimulus
+        exclude                 : varchar(512) # what inputs to exclude from normalization
+        normalize               : bool         # whether to use a normalize or not
+        (oracle_source) -> master
+        -> experiment.Layer
+        -> anatomy.Area
+        percent_low             : tinyint       # percent oracle lower cutoff
+        percent_high            : tinyint      # percent oracle upper cutoff
+        """
+        _exclude_from_normalization = ['inputs', 'responses']
+
+        def describe(self, key):
+            return "Like AreaLayer but only {percent_low}-{percent_high} percent best oracle neurons computed on {oracle_source}".format(
+                **key)
+
+        @property
+        def content(self):
+            for p in product(['all'],
+                             ['stimulus.Clip', '~stimulus.Clip'],
+                             ['inputs,responses'],
+                             [True],
+                             list((DataConfig.AreaLayer() & dict(
+                                 brain_area='V1', layer='L2/3',
+                                 train_seq_len=150, normalize=True, 
+                                 stats_source='all', stimulus_type='~stimulus.Clip',
+                                 exclude='inputs,responses')).fetch('data_hash')),
+                             ['L2/3'],
+                             ['V1'],
+                             [25],
+                             [75]):
+                yield dict(zip(self.heading.dependent_attributes, p))
+            for p in product(['all'],
+                             ['stimulus.Clip', '~stimulus.Clip'],
+                             ['inputs,responses'],
+                             [True],
+                             list((DataConfig.AreaLayer() & dict(
+                                 brain_area='V1', layer='L2/3',
+                                 train_seq_len=150, normalize=True, 
+                                 stats_source='all', stimulus_type='~stimulus.Clip',
+                                 exclude='inputs,responses')).fetch('data_hash')),
+                             ['L2/3'],
+                             ['V1'],
+                             [75],
+                             [100]):
+                yield dict(zip(self.heading.dependent_attributes, p))
+        
+        def load_data(self, key, tier=None, batch_size=1, train_seq_len=150):
+            pass # TODO: Daniel
+
+
     class AreaLayerSubset(dj.Part, StimulusTypeMixin):
         definition = """
         -> master
