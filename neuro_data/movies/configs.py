@@ -229,7 +229,7 @@ class DataConfig(ConfigBase, dj.Lookup):
                              [True],
                              [30 * 5],
                              ['L2/3'],
-                             ['V1']):
+                             ['V1', 'LM']):
                 yield dict(zip(self.heading.dependent_attributes, p))
 
     class AreaLayerSubset(dj.Part, StimulusTypeMixin):
