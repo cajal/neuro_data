@@ -315,6 +315,16 @@ class DataConfig(ConfigBase, dj.Lookup):
                              [75],
                              [100]):
                 yield dict(zip(self.heading.dependent_attributes, p))
+            for p in product(['all'],
+                             ['stimulus.Frame', '~stimulus.Frame'],
+                             ['images,responses'],
+                             [True],
+                             oracle_source,
+                             ['L2/3'],
+                             ['V1'],
+                             [0],
+                             [100]):
+                yield dict(zip(self.heading.dependent_attributes, p))
 
         def load_data(self, key, tier=None, batch_size=1, key_order=None, stimulus_types=None, Sampler=None):
             from .stats import Oracle
