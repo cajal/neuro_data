@@ -321,7 +321,7 @@ class DataConfig(ConfigBase, dj.Lookup):
                              [100]):
                 yield dict(zip(self.heading.dependent_attributes, p))
             for p in product(['all'],
-                             ['stimulus.Frame', '~stimulus.Frame'],
+                             ['stimulus.Clip', '~stimulus.Clip'],
                              ['images,responses'],
                              [True],
                              oracle_source,
