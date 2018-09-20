@@ -332,11 +332,11 @@ class DataConfig(ConfigBase, dj.Lookup):
                 yield dict(zip(self.heading.dependent_attributes, p))
 
         def load_data(self, key, tier=None, batch_size=1, train_seq_len=150,
-                      Sampler=None):
+                      Sampler=None, cuda=False):
             from .stats import Oracle
             key['train_seq_len'] = train_seq_len
             datasets, loaders = super().load_data(
-                key, tier=tier, batch_size=batch_size, Sampler=Sampler)
+                key, tier=tier, batch_size=batch_size, Sampler=Sampler, cuda=cuda)
             for rok, dataset in datasets.items():
                 member_key = (MovieMultiDataset.Member() & key &
                               dict(name=rok)).fetch1(dj.key)
