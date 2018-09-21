@@ -15,7 +15,17 @@ from .. import logger as log
 from ..utils.config import ConfigBase, fixed_seed
 from ..utils.sampler import SubsetSequentialSampler, BalancedSubsetSampler
 
+
 schema = dj.schema('neurodata_movie_configs', locals())
+
+
+class DataLoaderTFirst(DataLoader):
+    def __iter__(self):
+        for x in super().__iter__():
+            yield list(
+                map(lambda xf: xf[0].permute(2, 0, 1, 3, 4)
+                    if xf[1] == 'inputs' else xf[0].permute(1, 0, 2),
+                    zip(x, self.dataset.data_point._fields)))
 
 
 class StimulusTypeMixin:
@@ -98,7 +108,8 @@ class StimulusTypeMixin:
             'Number of batches in the loader will be {}'.format(int(np.ceil(len(loader.sampler) / loader.batch_size))))
 
     def get_loaders(self, datasets, tier, batch_size, stimulus_types, balanced=False,
-                    merge_noise_types=True, shrink_to_same_size=False, Sampler=None):
+                    merge_noise_types=True, shrink_to_same_size=False, Sampler=None,
+                    t_first=False):
         if Sampler is None:
             Sampler = self.get_sampler_class(tier, balanced)
 
@@ -154,14 +165,21 @@ class StimulusTypeMixin:
                 sampler = Sampler(ix, types)
             else:
                 sampler = Sampler(ix)
-            loaders[k] = DataLoader(
-                dataset, sampler=sampler, batch_size=batch_size)
+            if t_first:
+                log.info('Time in first dimension')
+                loaders[k] = DataLoaderTFirst(
+                    dataset, sampler=sampler, batch_size=batch_size)
+            else:
+                log.info('Batch in first dimension')
+                loaders[k] = DataLoader(
+                    dataset, sampler=sampler, batch_size=batch_size)
             self.log_loader(loaders[k])
         return loaders
 
     def load_data(self, key, stimulus_types, tier=None, batch_size=1, key_order=None,
                   normalize=True, exclude_from_normalization=None,
-                  balanced=False, shrink_to_same_size=False, cuda=False, Sampler=None):
+                  balanced=False, shrink_to_same_size=False, cuda=False,
+                  Sampler=None, t_first=False):
         log.info('Loading {} datasets with tier {}'.format(
             pformat(stimulus_types, indent=20), tier))
         datasets = MovieMultiDataset().fetch_data(key, key_order=key_order)
@@ -177,13 +195,14 @@ class StimulusTypeMixin:
                                        normalize=normalize, cuda=cuda)
         loaders = self.get_loaders(
             datasets, tier, batch_size, stimulus_types=stimulus_types,
-            balanced=balanced, shrink_to_same_size=shrink_to_same_size, Sampler=Sampler)
+            balanced=balanced, shrink_to_same_size=shrink_to_same_size,
+            Sampler=Sampler, t_first=t_first)
         return datasets, loaders
 
 
 class AreaLayerMixin(StimulusTypeMixin):
     def load_data(self, key, tier=None, batch_size=1, key_order=None, cuda=False,
-                  Sampler=None, **kwargs):
+                  Sampler=None, t_first=False, **kwargs):
         log.info('Ignoring {} when loading {}'.format(
             pformat(kwargs, indent=20), self.__class__.__name__))
         shrink = key.pop('shrink', False)
@@ -196,7 +215,7 @@ class AreaLayerMixin(StimulusTypeMixin):
                                               normalize=key.pop('normalize'),
                                               balanced=balanced,
                                               shrink_to_same_size=shrink,
-                                              cuda=cuda, Sampler=Sampler)
+                                              cuda=cuda, Sampler=Sampler, t_first=t_first)
 
         log.info(
             'Subsampling to layer "{layer}" and area "{brain_area}"'.format(**key))
@@ -320,13 +339,24 @@ class DataConfig(ConfigBase, dj.Lookup):
                              [75],
                              [100]):
                 yield dict(zip(self.heading.dependent_attributes, p))
+            for p in product(['all'],
+                             ['stimulus.Clip', '~stimulus.Clip'],
+                             ['images,responses'],
+                             [True],
+                             oracle_source,
+                             ['L2/3'],
+                             ['V1'],
+                             [0],
+                             [100]):
+                yield dict(zip(self.heading.dependent_attributes, p))
 
         def load_data(self, key, tier=None, batch_size=1, train_seq_len=150,
-                      Sampler=None):
+                      Sampler=None, t_first=False, cuda=False):
             from .stats import Oracle
             key['train_seq_len'] = train_seq_len
             datasets, loaders = super().load_data(
-                key, tier=tier, batch_size=batch_size, Sampler=Sampler)
+                key, tier=tier, batch_size=batch_size, Sampler=Sampler,
+                t_first=t_first, cuda=cuda)
             for rok, dataset in datasets.items():
                 member_key = (MovieMultiDataset.Member() & key &
                               dict(name=rok)).fetch1(dj.key)
