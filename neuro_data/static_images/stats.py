@@ -128,7 +128,6 @@ class OracleStims(dj.Computed):
         else:
             stimulus_type = '~stimulus.Frame'
 
-        print(stimulus_type)
         key['condition_hashes'] = condtion_hashes
         key['stimulus_type'] = stimulus_type
         key['num_cond_hashes'] = len(condtion_hashes)
