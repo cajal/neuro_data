@@ -90,9 +90,11 @@ class OracleStims(dj.Computed):
     """
 
     def key_source(self):
-       return InputResponse()
+        from .data_schemas import StaticMultiDataset, InputResponse
+        return InputResponse & StaticMultiDataset.Member
 
-    def _make_tuples(self, key):
+    def make(self, key):
+        from .data_schemas import StaticMultiDataset, InputResponse
         min_num_of_repeats = 4 # Arbitary requirment
 
         # Extract data from database with respect to the given key
@@ -104,12 +106,6 @@ class OracleStims(dj.Computed):
                   'responses']
         h5filename = InputResponse().get_filename(key)
         dataset = StaticImageSet(h5filename, *data_names)
-
-        # Find unique hashes and its number of occurances
-        hash_count = Counter(dataset.condition_hashes)
-
-        condtion_hashes = []
-        min_trial_repeats = len(hash_count)
 
         # Find smallest_num_of_occurances among hashes that has >= than min_num_of_repeats
         all_unique_hashes, all_counts = np.unique(dataset.condition_hashes, return_counts=True)
