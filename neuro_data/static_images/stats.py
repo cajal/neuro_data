@@ -128,3 +128,4 @@ class OracleStims(dj.Computed):
         key['stimulus_type'] = stimulus_type
         key['num_cond_hashes'] = len(unique_hashes)
         key['min_trial_repeats'] = min_trial_repeats
+        self.insert1(key)
