@@ -85,15 +85,14 @@ class OracleStims(dj.Computed):
     ---
     condition_hashes    : longblob      # Array of condition_hashes that has at least 4 (Arbitary) repeats
     stimulus_type       : varchar(64)   # {stimulus.Frame, ~stimulus.Frame, stimulus.Frame|~stimulus.Frame} corresponding to
-    num_cond_hashes     : int           # num of condition_hashes that meet the Arbitary requirement
-    min_num_of_occurances     : int     # The min_num_of_occurances in the condition_hashes array
+    num_oracle_stims    : int           # num of unique stimuli that have >= 4 repeat presentations
+    min_trial_repeats   : int           # The min_num_of_occurances in the condition_hashes array
     """
 
-    @property
     def key_source(self):
        return InputResponse()
 
-    def make(self, key):
+    def _make_tuples(self, key):
         min_num_of_repeats = 4 # Arbitary requirment
 
         # Extract data from database with respect to the given key
@@ -110,25 +109,26 @@ class OracleStims(dj.Computed):
         hash_count = Counter(dataset.condition_hashes)
 
         condtion_hashes = []
-        min_num_of_occurances = len(hash_count)
+        min_trial_repeats = len(hash_count)
 
         # Find smallest_num_of_occurances among hashes that has >= than min_num_of_repeats
-        for hash in hash_count:
-             if (hash_count[hash] >= min_num_of_repeats):
-                if (hash_count[hash] < min_num_of_occurances):
-                    smallest_num_of_occurances = hash_count[hash]
-                condtion_hashes.append(hash)
+        all_unique_hashes, all_counts = np.unique(dataset.condition_hashes, return_counts=True)
+        mask = [all_counts >= min_num_of_repeats]
+        unique_hashes = all_unique_hashes[mask]
+        min_num_of_occurances = all_counts[mask].min()
         
         # Determine stimulus_type
-        if ('stimulus.Frame' in dataset.types):
-            if('stimulus.TrippyFrame' in dataset.types or 'stimulus.MonetFrame' in dataset.types):
-                stimulus_type = 'stimulus.Frame|~stimulus.Frame'
-            else:
-                stimulus_type = 'stimulus.Frame'
+        all_stim_types = dataset.types[np.isin(dataset.condition_hashes, unique_hashes)]
+        unique_stim_types = np.unique(all_stim_types)
+        if 'stimulus.Frame' in unique_stim_types:
+            stimulus_type = 'stimulus.Frame'
+            if len(unique_stim_types) > 1:
+                stimulus_type += '|~stimulus.Frame'
         else:
             stimulus_type = '~stimulus.Frame'
 
-        key['condition_hashes'] = condtion_hashes
+        print(stimulus_type)
+        key['condition_hashes'] = unique_hashes
         key['stimulus_type'] = stimulus_type
-        key['num_cond_hashes'] = len(condtion_hashes)
-        key['min_num_of_occurances'] = min_num_of_occurances
+        key['num_cond_hashes'] = len(unique_hashes)
+        key['min_trial_repeats'] = min_trial_repeats
