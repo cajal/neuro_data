@@ -111,7 +111,7 @@ class OracleStims(dj.Computed):
         all_unique_hashes, all_counts = np.unique(dataset.condition_hashes, return_counts=True)
         mask = [all_counts >= min_num_of_repeats]
         unique_hashes = all_unique_hashes[mask]
-        min_num_of_occurances = all_counts[mask].min()
+        min_trial_repeats = all_counts[mask].min()
         
         # Determine stimulus_type
         all_stim_types = dataset.types[np.isin(dataset.condition_hashes, unique_hashes)]
@@ -123,7 +123,6 @@ class OracleStims(dj.Computed):
         else:
             stimulus_type = '~stimulus.Frame'
 
-        print(stimulus_type)
         key['condition_hashes'] = unique_hashes
         key['stimulus_type'] = stimulus_type
         key['num_cond_hashes'] = len(unique_hashes)
