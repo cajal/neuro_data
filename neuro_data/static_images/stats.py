@@ -77,3 +77,59 @@ class Oracle(dj.Computed):
             self.UnitScores().insert(
             [dict(member_key, pearson=c, unit_id=u) for u, c in tqdm(zip(unit_ids, pearson), total=len(unit_ids))],
             ignore_extra_fields=True)
+
+@schema 
+class OracleStims(dj.Computed):
+    definition = """
+    ->InputResponse
+    ---
+    condition_hashes    : longblob      # Array of condition_hashes that has at least 4 (Arbitary) repeats
+    stimulus_type       : varchar(64)   # {stimulus.Frame, ~stimulus.Frame, stimulus.Frame|~stimulus.Frame} corresponding to
+    num_cond_hashes     : int           # num of condition_hashes that meet the Arbitary requirement
+    min_num_of_occurances     : int     # The min_num_of_occurances in the condition_hashes array
+    """
+
+    @property
+    def key_source(self):
+       return InputResponse()
+
+    def make(self, key):
+        min_num_of_repeats = 4 # Arbitary requirment
+
+        # Extract data from database with respect to the given key
+        include_behavior = bool(Eye.proj() * Treadmill().proj() & key)
+        data_names = ['images', 'responses'] if not include_behavior \
+            else ['images',
+                  'behavior',
+                  'pupil_center',
+                  'responses']
+        h5filename = InputResponse().get_filename(key)
+        dataset = StaticImageSet(h5filename, *data_names)
+
+        # Find unique hashes and its number of occurances
+        hash_count = Counter(dataset.condition_hashes)
+
+        condtion_hashes = []
+        min_num_of_occurances = len(hash_count)
+
+        # Find smallest_num_of_occurances among hashes that has >= than min_num_of_repeats
+        for hash in hash_count:
+             if (hash_count[hash] >= min_num_of_repeats):
+                if (hash_count[hash] < min_num_of_occurances):
+                    smallest_num_of_occurances = hash_count[hash]
+                condtion_hashes.append(hash)
+        
+        # Determine stimulus_type
+        if ('stimulus.Frame' in dataset.types):
+            if('stimulus.TrippyFrame' in dataset.types or 'stimulus.MonetFrame' in dataset.types):
+                stimulus_type = 'stimulus.Frame|~stimulus.Frame'
+            else:
+                stimulus_type = 'stimulus.Frame'
+        else:
+            stimulus_type = '~stimulus.Frame'
+
+        print(stimulus_type)
+        key['condition_hashes'] = condtion_hashes
+        key['stimulus_type'] = stimulus_type
+        key['num_cond_hashes'] = len(condtion_hashes)
+        key['min_num_of_occurances'] = min_num_of_occurances
