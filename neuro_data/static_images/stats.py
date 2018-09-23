@@ -89,6 +89,7 @@ class OracleStims(dj.Computed):
     min_trial_repeats   : int           # The min_num_of_occurances in the condition_hashes array
     """
 
+    @property
     def key_source(self):
         from .data_schemas import StaticMultiDataset, InputResponse
         return InputResponse & StaticMultiDataset.Member
