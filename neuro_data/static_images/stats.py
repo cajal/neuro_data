@@ -12,7 +12,7 @@ from .data_schemas import StaticMultiDataset, StaticScan
 from .. import logger as log
 
 schema = dj.schema('neurodata_static_stats', locals())
-
+data_schemas = dj.create_virtual_module('data_schemas', 'neurodata_static')
 
 @schema
 class Oracle(dj.Computed):
@@ -81,7 +81,7 @@ class Oracle(dj.Computed):
 @schema 
 class OracleStims(dj.Computed):
     definition = """
-    ->InputResponse
+    -> data_schema.InputResponse
     ---
     condition_hashes    : longblob      # Array of condition_hashes that has at least 4 (Arbitary) repeats
     stimulus_type       : varchar(64)   # {stimulus.Frame, ~stimulus.Frame, stimulus.Frame|~stimulus.Frame} corresponding to
