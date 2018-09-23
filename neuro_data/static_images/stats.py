@@ -94,7 +94,7 @@ class OracleStims(dj.Computed):
         return InputResponse & StaticMultiDataset.Member
 
     def make(self, key):
-        from .data_schemas import StaticMultiDataset, InputResponse
+        from .data_schemas import StaticMultiDataset, InputResponse, Eye, Treadmill
         min_num_of_repeats = 4 # Arbitary requirment
 
         # Extract data from database with respect to the given key
