@@ -81,7 +81,7 @@ class Oracle(dj.Computed):
 @schema 
 class OracleStims(dj.Computed):
     definition = """
-    -> data_schema.InputResponse
+    -> data_schemas.InputResponse
     ---
     condition_hashes    : longblob      # Array of condition_hashes that has at least 4 (Arbitary) repeats
     stimulus_type       : varchar(64)   # {stimulus.Frame, ~stimulus.Frame, stimulus.Frame|~stimulus.Frame} corresponding to
