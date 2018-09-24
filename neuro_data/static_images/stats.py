@@ -84,6 +84,7 @@ class OracleStims(dj.Computed):
     -> data_schemas.InputResponse
     ---
     condition_hashes    : longblob      # Array of condition_hashes that has at least 4 (Arbitary) repeats
+    frame_image_ids     : longblob      # Array of frame_iamge_ids that has at least 4 (Arbitary) repeats
     stimulus_type       : varchar(64)   # {stimulus.Frame, ~stimulus.Frame, stimulus.Frame|~stimulus.Frame} corresponding to
     num_oracle_stims    : int           # num of unique stimuli that have >= 4 repeat presentations
     min_trial_repeats   : int           # The min_num_of_occurances in the condition_hashes array
@@ -146,3 +147,36 @@ class OracleStims(dj.Computed):
         key['num_oracle_stims'] = frame_image_ids.shape[0] + condition_hashes.shape[0]
         key['min_trial_repeats'] = [minumum_natural_image_trials, minumum_noise_image_trials]
         self.insert1(key)
+
+@schema
+class BootstrapOracleSeed(dj.Lookup):
+    definition = """
+    # random seed for training
+    oracle_bootstrap_seed                 :  int # random seed
+    ---
+    """
+
+    @property
+    def contents(self):
+        for seed in list(range(100)):
+            yield (seed,)
+
+@schema
+class BoostrapOracleScore(dj.Computed):
+	definition = """
+	-> OracleStims
+	-> BoostrapOracleSeed
+	---
+	true_boostrap_oracle			: float
+	null_bootstrap_oracle			: float
+	"""
+
+@schema	
+class BoostrapUnitOracleScore(dj.Part):
+	definition = """
+	-> master
+	unit_id
+	---
+	true_unit_bootrap_oracle		: float
+	null_unit_bootrap_oracle		: float
+	"""
