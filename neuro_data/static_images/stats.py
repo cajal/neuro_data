@@ -151,7 +151,6 @@ class OracleStims(dj.Computed):
 @schema
 class BootstrapOracleSeed(dj.Lookup):
     definition = """
-    # random seed for training
     oracle_bootstrap_seed                 :  int # random seed
     ---
     """
