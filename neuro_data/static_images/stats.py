@@ -163,7 +163,7 @@ class BootstrapOracleSeed(dj.Lookup):
 class BoostrapOracleScore(dj.Computed):
     definition = """
     -> OracleStims
-    -> BoostrapOracleSeed
+    -> BootstrapOracleSeed
     ---
     true_boostrap_oracle			: float
     null_bootstrap_oracle			: float
