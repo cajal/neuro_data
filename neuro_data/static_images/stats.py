@@ -110,9 +110,9 @@ class OracleStims(dj.Computed):
         include_behavior = bool(Eye.proj() * Treadmill().proj() & key)
         data_names = ['images', 'responses'] if not include_behavior \
             else ['images',
-                  'behavior',
-                  'pupil_center',
-                  'responses']
+                'behavior',
+                'pupil_center',
+                'responses']
         h5filename = InputResponse().get_filename(key)
         dataset = StaticImageSet(h5filename, *data_names)
 
@@ -132,7 +132,7 @@ class OracleStims(dj.Computed):
         stimulus_type = ''
 
         temp = all_stimulus_unique_frame_id_count[all_stimulus_unique_frame_id_count >=
-                                                  min_num_of_repeats]
+                                                min_num_of_repeats]
         if temp.size > 0:
             minumum_natural_image_trials = temp.min()
             stimulus_type = 'stimulus.Frame'
@@ -150,6 +150,14 @@ class OracleStims(dj.Computed):
         else:
             minumum_noise_image_trials = 0
 
+        # Deteremine min_trial_repeats based on the values above
+        min_trial_repeats = np.array([minumum_natural_image_trials, minumum_noise_image_trials])
+        min_trial_repeats = min_trial_repeats[min_trial_repeats > 0]
+        if min_trial_repeats.size == 0:
+            min_trial_repeats = 0
+        elif min_trial_repeats.size == 2:
+            min_trial_repeats = min(min_num_of_repeats)
+
         chashes_json = json.dumps(condition_hashes.tolist())
         assert len(chashes_json) < 8000, 'condition hashes exceeds 8000 characters'
 
@@ -158,8 +166,7 @@ class OracleStims(dj.Computed):
         key['frame_image_ids'] = frame_image_ids
         key['condition_hashes_json'] = chashes_json
         key['num_oracle_stims'] = frame_image_ids.size + condition_hashes.size
-        key['min_trial_repeats'] = min(
-            minumum_natural_image_trials, minumum_noise_image_trials)
+        key['min_trial_repeats'] = min_trial_repeats
         self.insert1(key)
 
 
