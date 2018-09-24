@@ -170,13 +170,12 @@ class BoostrapOracleScore(dj.Computed):
 	true_boostrap_oracle			: float
 	null_bootstrap_oracle			: float
 	"""
-
-@schema	
-class BoostrapUnitOracleScore(dj.Part):
-	definition = """
-	-> master
-	unit_id
-	---
-	true_unit_bootrap_oracle		: float
-	null_unit_bootrap_oracle		: float
-	"""
+	
+    class BoostrapUnitOracleScore(dj.Part):
+	    definition = """
+	    -> master
+	    unit_id
+	    ---
+	    true_unit_bootrap_oracle		: float
+	    null_unit_bootrap_oracle		: float
+	    """
