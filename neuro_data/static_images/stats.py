@@ -1,6 +1,6 @@
 import datajoint as dj
 from tqdm import tqdm
-
+import json
 import numpy as np
 from scipy import stats
 
@@ -13,6 +13,7 @@ from .. import logger as log
 
 schema = dj.schema('neurodata_static_stats', locals())
 data_schemas = dj.create_virtual_module('data_schemas', 'neurodata_static')
+
 
 @schema
 class Oracle(dj.Computed):
@@ -69,25 +70,29 @@ class Oracle(dj.Computed):
                 return
             pearson = corr(np.vstack(data), np.vstack(oracles), axis=0)
 
-            member_key = (StaticMultiDataset.Member() & key & dict(name=readout_key)).fetch1(dj.key)
+            member_key = (StaticMultiDataset.Member() & key &
+                          dict(name=readout_key)).fetch1(dj.key)
             member_key = dict(member_key, **key)
             self.Scores().insert1(dict(member_key, pearson=np.mean(pearson)), ignore_extra_fields=True)
             unit_ids = testsets[readout_key].neurons.unit_ids
-            assert len(unit_ids) == len(pearson) == outputs.shape[-1], 'Neuron numbers do not add up'
+            assert len(unit_ids) == len(
+                pearson) == outputs.shape[-1], 'Neuron numbers do not add up'
             self.UnitScores().insert(
-            [dict(member_key, pearson=c, unit_id=u) for u, c in tqdm(zip(unit_ids, pearson), total=len(unit_ids))],
-            ignore_extra_fields=True)
+                [dict(member_key, pearson=c, unit_id=u)
+                 for u, c in tqdm(zip(unit_ids, pearson), total=len(unit_ids))],
+                ignore_extra_fields=True)
 
-@schema 
+
+@schema
 class OracleStims(dj.Computed):
     definition = """
     -> data_schemas.InputResponse
     ---
-    condition_hashes    : longblob      # Array of condition_hashes that has at least 4 (Arbitary) repeats
-    frame_image_ids     : longblob      # Array of frame_iamge_ids that has at least 4 (Arbitary) repeats
-    stimulus_type       : varchar(64)   # {stimulus.Frame, ~stimulus.Frame, stimulus.Frame|~stimulus.Frame} corresponding to
-    num_oracle_stims    : int           # num of unique stimuli that have >= 4 repeat presentations
-    min_trial_repeats   : int           # The min_num_of_occurances in the condition_hashes array
+    stimulus_type           : varchar(64)   # {stimulus.Frame, ~stimulus.Frame, stimulus.Frame|~stimulus.Frame}
+    frame_image_ids         : longblob      # Array of frame_iamge_ids that has at least 4 (Arbitary) repeats
+    condition_hashes_json   : varchar(8000) # Json (list) of condition_hashes that has at least 4 (Arbitary) repeats
+    num_oracle_stims        : int           # num of unique stimuli that have >= 4 repeat presentations
+    min_trial_repeats       : int           # The min_num_of_occurances in the condition_hashes array
     """
 
     @property
@@ -99,53 +104,64 @@ class OracleStims(dj.Computed):
         from .data_schemas import InputResponse, Eye, Treadmill
         from .datasets import StaticImageSet
 
-        min_num_of_repeats = 4 # Arbitary requirment
+        min_num_of_repeats = 4  # Arbitary requirment
 
         # Extract data from database with respect to the given key
         include_behavior = bool(Eye.proj() * Treadmill().proj() & key)
         data_names = ['images', 'responses'] if not include_behavior \
             else ['images',
-                'behavior',
-                'pupil_center',
-                'responses']
+                  'behavior',
+                  'pupil_center',
+                  'responses']
         h5filename = InputResponse().get_filename(key)
         dataset = StaticImageSet(h5filename, *data_names)
 
         # Get all frame_image_ids for repeated stimulus.image that repeates more than 4
-        all_stimulus_unique_frame_id, all_stimulus_unique_frame_id_count = np.unique(dataset.info.frame_image_id[dataset.types == 'stimulus.Frame'], return_counts=True)
-        frame_image_ids = all_stimulus_unique_frame_id[all_stimulus_unique_frame_id_count >= min_num_of_repeats]
+        all_stimulus_unique_frame_id, all_stimulus_unique_frame_id_count = np.unique(
+            dataset.info.frame_image_id[dataset.types == 'stimulus.Frame'], return_counts=True)
+        frame_image_ids = all_stimulus_unique_frame_id[
+            all_stimulus_unique_frame_id_count >= min_num_of_repeats]
 
         # Get all condition_hash for repeated ~stimulus.image that repeates more than 4
-        all_not_stimulus_unique_frames, all_not_stimulus_unique_frames_count = np.unique(dataset.condition_hashes[dataset.types != 'stimulus.Frame'], return_counts=True)
-        condition_hashes = all_not_stimulus_unique_frames[all_not_stimulus_unique_frames_count >= min_num_of_repeats]
+        all_not_stimulus_unique_frames, all_not_stimulus_unique_frames_count = np.unique(
+            dataset.condition_hashes[dataset.types != 'stimulus.Frame'], return_counts=True)
+        condition_hashes = all_not_stimulus_unique_frames[
+            all_not_stimulus_unique_frames_count >= min_num_of_repeats]
 
         # Compute min_trial_repeats for both natural images and noise, also determine stimulus.type
         stimulus_type = ''
 
-        temp = all_stimulus_unique_frame_id_count[all_stimulus_unique_frame_id_count >= min_num_of_repeats]
+        temp = all_stimulus_unique_frame_id_count[all_stimulus_unique_frame_id_count >=
+                                                  min_num_of_repeats]
         if temp.size > 0:
             minumum_natural_image_trials = temp.min()
             stimulus_type = 'stimulus.Frame'
         else:
             minumum_natural_image_trials = 0
 
-        temp = all_not_stimulus_unique_frames_count[all_not_stimulus_unique_frames_count >= min_num_of_repeats]
+        temp = all_not_stimulus_unique_frames_count[
+            all_not_stimulus_unique_frames_count >= min_num_of_repeats]
         if temp.size > 0:
             minumum_noise_image_trials = temp.min()
             if stimulus_type == 'stimulus.Frame':
                 stimulus_type += '|~stimulus.Frame'
             else:
-                stimulus_type = '~stimulus.Frame' 
+                stimulus_type = '~stimulus.Frame'
         else:
             minumum_noise_image_trials = 0
 
+        chashes_json = json.dumps(condition_hashes.tolist())
+        assert len(chashes_json) < 8000, 'condition hashes exceeds 8000 characters'
+
         # Fill in table
-        key['condition_hashes'] = condition_hashes
-        key['frame_image_ids'] = frame_image_ids
         key['stimulus_type'] = stimulus_type
+        key['frame_image_ids'] = frame_image_ids
+        key['condition_hashes_json'] = chashes_json
         key['num_oracle_stims'] = frame_image_ids.size + condition_hashes.size
-        key['min_trial_repeats'] = min(minumum_natural_image_trials, minumum_noise_image_trials)
+        key['min_trial_repeats'] = min(
+            minumum_natural_image_trials, minumum_noise_image_trials)
         self.insert1(key)
+
 
 @schema
 class BootstrapOracleSeed(dj.Lookup):
@@ -159,6 +175,7 @@ class BootstrapOracleSeed(dj.Lookup):
         for seed in list(range(100)):
             yield (seed,)
 
+
 @schema
 class BoostrapOracleScore(dj.Computed):
     definition = """
@@ -168,7 +185,7 @@ class BoostrapOracleScore(dj.Computed):
     true_boostrap_oracle			: float
     null_bootstrap_oracle			: float
     """
-	
+
     class BoostrapUnitOracleScore(dj.Part):
         definition = """
         -> master
@@ -177,4 +194,3 @@ class BoostrapOracleScore(dj.Computed):
         true_unit_bootrap_oracle		: float
         null_unit_bootrap_oracle		: float
         """
-    
