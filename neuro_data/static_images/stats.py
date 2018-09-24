@@ -98,15 +98,16 @@ class OracleStims(dj.Computed):
     def make(self, key):
         from .data_schemas import InputResponse, Eye, Treadmill
         from .datasets import StaticImageSet
+        
         min_num_of_repeats = 4 # Arbitary requirment
 
         # Extract data from database with respect to the given key
         include_behavior = bool(Eye.proj() * Treadmill().proj() & key)
         data_names = ['images', 'responses'] if not include_behavior \
             else ['images',
-                  'behavior',
-                  'pupil_center',
-                  'responses']
+                'behavior',
+                'pupil_center',
+                'responses']
         h5filename = InputResponse().get_filename(key)
         dataset = StaticImageSet(h5filename, *data_names)
 
@@ -118,32 +119,27 @@ class OracleStims(dj.Computed):
         all_not_stimulus_unique_frames, all_not_stimulus_unique_frames_count = np.unique(dataset.condition_hashes[dataset.types != 'stimulus.Frame'], return_counts=True)
         condition_hashes = all_not_stimulus_unique_frames[all_not_stimulus_unique_frames_count >= min_num_of_repeats]
 
-        # Compute min_trial_repeats for both natural images and noise
+        # Compute min_trial_repeats for both natural images and noise, also determine stimulus.type
         temp = all_stimulus_unique_frame_id_count[all_stimulus_unique_frame_id_count >= min_num_of_repeats]
         if temp.shape[0] != 0:
             minumum_natural_image_trials = temp.min()
+            stimulus_type = 'stimulus.Frame'
         else:
             minumum_natural_image_trials = 0
+            stimulus_type = '~stimulus.Frame'
 
         temp = all_not_stimulus_unique_frames_count[all_not_stimulus_unique_frames_count >= min_num_of_repeats]
         if temp.shape[0] != 0:
             minumum_noise_image_trials = temp.min()
+            if stimulus_type == 'stimulus.Frame':
+                stimulus_type += '|~stimulus.Frame'
         else:
             minumum_noise_image_trials = 0
 
-        # Determine stimulus_type
-        all_stim_types = dataset.types[np.isin(dataset.condition_hashes, unique_hashes)]
-        unique_stim_types = np.unique(all_stim_types)
-        if 'stimulus.Frame' in unique_stim_types:
-            stimulus_type = 'stimulus.Frame'
-            if len(unique_stim_types) > 1:
-                stimulus_type += '|~stimulus.Frame'
-        else:
-            stimulus_type = '~stimulus.Frame'
-
         # Fill in table
-        key['frame_image_ids'] = frame_image_ids
         key['condition_hashes'] = condition_hashes
+        key['frame_image_ids'] = frame_image_ids
+        key['stimulus_type'] = stimulus_type
         key['num_oracle_stims'] = frame_image_ids.shape[0] + condition_hashes.shape[0]
         key['min_trial_repeats'] = [minumum_natural_image_trials, minumum_noise_image_trials]
         self.insert1(key)
