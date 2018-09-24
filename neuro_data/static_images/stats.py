@@ -98,7 +98,7 @@ class OracleStims(dj.Computed):
     def make(self, key):
         from .data_schemas import InputResponse, Eye, Treadmill
         from .datasets import StaticImageSet
-        
+
         min_num_of_repeats = 4 # Arbitary requirment
 
         # Extract data from database with respect to the given key
@@ -120,19 +120,22 @@ class OracleStims(dj.Computed):
         condition_hashes = all_not_stimulus_unique_frames[all_not_stimulus_unique_frames_count >= min_num_of_repeats]
 
         # Compute min_trial_repeats for both natural images and noise, also determine stimulus.type
+        stimulus_type = ''
+
         temp = all_stimulus_unique_frame_id_count[all_stimulus_unique_frame_id_count >= min_num_of_repeats]
         if temp.shape[0] != 0:
             minumum_natural_image_trials = temp.min()
             stimulus_type = 'stimulus.Frame'
         else:
             minumum_natural_image_trials = 0
-            stimulus_type = '~stimulus.Frame'
 
         temp = all_not_stimulus_unique_frames_count[all_not_stimulus_unique_frames_count >= min_num_of_repeats]
         if temp.shape[0] != 0:
             minumum_noise_image_trials = temp.min()
             if stimulus_type == 'stimulus.Frame':
                 stimulus_type += '|~stimulus.Frame'
+            else:
+                stimulus_type = '~stimulus.Frame' 
         else:
             minumum_noise_image_trials = 0
 
