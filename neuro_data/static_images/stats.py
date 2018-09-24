@@ -123,14 +123,14 @@ class OracleStims(dj.Computed):
         stimulus_type = ''
 
         temp = all_stimulus_unique_frame_id_count[all_stimulus_unique_frame_id_count >= min_num_of_repeats]
-        if temp.shape[0] != 0:
+        if temp.size > 0:
             minumum_natural_image_trials = temp.min()
             stimulus_type = 'stimulus.Frame'
         else:
             minumum_natural_image_trials = 0
 
         temp = all_not_stimulus_unique_frames_count[all_not_stimulus_unique_frames_count >= min_num_of_repeats]
-        if temp.shape[0] != 0:
+        if temp.size > 0:
             minumum_noise_image_trials = temp.min()
             if stimulus_type == 'stimulus.Frame':
                 stimulus_type += '|~stimulus.Frame'
@@ -143,7 +143,7 @@ class OracleStims(dj.Computed):
         key['condition_hashes'] = condition_hashes
         key['frame_image_ids'] = frame_image_ids
         key['stimulus_type'] = stimulus_type
-        key['num_oracle_stims'] = frame_image_ids.shape[0] + condition_hashes.shape[0]
+        key['num_oracle_stims'] = frame_image_ids.size + condition_hashes.size
         key['min_trial_repeats'] = min(minumum_natural_image_trials, minumum_noise_image_trials)
         self.insert1(key)
 
