@@ -144,7 +144,7 @@ class OracleStims(dj.Computed):
         key['frame_image_ids'] = frame_image_ids
         key['stimulus_type'] = stimulus_type
         key['num_oracle_stims'] = frame_image_ids.shape[0] + condition_hashes.shape[0]
-        key['min_trial_repeats'] = [minumum_natural_image_trials, minumum_noise_image_trials]
+        key['min_trial_repeats'] = min(minumum_natural_image_trials, minumum_noise_image_trials)
         self.insert1(key)
 
 @schema
