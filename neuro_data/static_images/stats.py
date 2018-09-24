@@ -172,7 +172,7 @@ class BoostrapOracleScore(dj.Computed):
     class BoostrapUnitOracleScore(dj.Part):
         definition = """
         -> master
-        unit_id
+        unit_id                         : int
         ---
         true_unit_bootrap_oracle		: float
         null_unit_bootrap_oracle		: float
