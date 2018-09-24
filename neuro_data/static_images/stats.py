@@ -178,4 +178,6 @@ class BoostrapOracleScore(dj.Computed):
 	    true_unit_bootrap_oracle		: float
 	    null_unit_bootrap_oracle		: float
 	    """
+        pass
+
     pass
