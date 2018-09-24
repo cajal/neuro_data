@@ -156,7 +156,9 @@ class OracleStims(dj.Computed):
         if min_trial_repeats.size == 0:
             min_trial_repeats = 0
         elif min_trial_repeats.size == 2:
-            min_trial_repeats = min(min_num_of_repeats)
+            min_trial_repeats = min(min_trial_repeats)
+        else:
+            min_trial_repeats = min_trial_repeats[0]
 
         chashes_json = json.dumps(condition_hashes.tolist())
         assert len(chashes_json) < 8000, 'condition hashes exceeds 8000 characters'
