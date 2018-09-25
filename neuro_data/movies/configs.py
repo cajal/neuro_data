@@ -40,8 +40,13 @@ class StimulusTypeMixin:
                 assert ex in dataset.data_groups, '{} not in data_groups'.format(
                     ex)
             transforms = []
-            if tier == 'train':
-                transforms.append(Subsequence(key['train_seq_len']))
+            seq_len = key.pop('seq_len', False)
+            if seq_len is not False:
+                if seq_len is not None:
+                    transforms.append(Subsequence(seq_len))
+            else:
+                if tier == 'train':
+                    transforms.append(Subsequence(key['train_seq_len']))
             if normalize:
                 log.info('Using normalization={}'.format(normalize))
                 transforms.append(Normalizer(
@@ -350,10 +355,10 @@ class DataConfig(ConfigBase, dj.Lookup):
                              [100]):
                 yield dict(zip(self.heading.dependent_attributes, p))
 
-        def load_data(self, key, tier=None, batch_size=1, train_seq_len=150,
+        def load_data(self, key, tier=None, batch_size=1, seq_len=None,
                       Sampler=None, t_first=False, cuda=False):
             from .stats import Oracle
-            key['train_seq_len'] = train_seq_len
+            key['seq_len'] = seq_len
             datasets, loaders = super().load_data(
                 key, tier=tier, batch_size=batch_size, Sampler=Sampler,
                 t_first=t_first, cuda=cuda)
