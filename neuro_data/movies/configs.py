@@ -290,7 +290,7 @@ class DataConfig(ConfigBase, dj.Lookup):
                              [True],
                              [30 * 5],
                              ['L2/3'],
-                             ['V1']):
+                             ['V1', 'LM']):
                 yield dict(zip(self.heading.dependent_attributes, p))
 
     class AreaLayerPercentOracle(dj.Part, AreaLayerMixin):
@@ -346,7 +346,7 @@ class DataConfig(ConfigBase, dj.Lookup):
                 yield dict(zip(self.heading.dependent_attributes, p))
             for p in product(['all'],
                              ['stimulus.Clip', '~stimulus.Clip'],
-                             ['images,responses'],
+                             ['inputs,responses'],
                              [True],
                              oracle_source,
                              ['L2/3'],

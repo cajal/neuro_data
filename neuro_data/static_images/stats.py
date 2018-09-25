@@ -186,20 +186,26 @@ class BootstrapOracleSeed(dj.Lookup):
 
 
 @schema
-class BoostrapOracleScore(dj.Computed):
+class BootstrapOracle(dj.Computed):
     definition = """
     -> OracleStims
     -> BootstrapOracleSeed
     ---
-    true_boostrap_oracle			: float
-    null_bootstrap_oracle			: float
     """
 
-    class BoostrapUnitOracleScore(dj.Part):
+    class Score(dj.Part):
         definition = """
         -> master
-        unit_id                         : int
         ---
-        true_unit_bootrap_oracle		: float
-        null_unit_bootrap_oracle		: float
+        boostrap_score_true			    : float
+        boostrap_score_null			    : float
+        """
+
+    class UnitScore(dj.Part):
+        definition = """
+        -> master
+        -> StaticScan.Unit
+        ---
+        boostrap_unit_score_true		: float
+        boostrap_unit_score_null		: float
         """
