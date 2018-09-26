@@ -288,6 +288,8 @@ class BootstrapOracle(dj.Computed):
         return corr(true_responses, true_oracles, axis=0), corr(null_responses, null_oracles, axis=0)
 
     def make(self, key):
+        log.info('Populating {}'.format(key))
+
         dataset = load_dataset(key)
 
         stim_tup = OracleStims & key
