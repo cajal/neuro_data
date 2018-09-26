@@ -196,53 +196,97 @@ class BootstrapOracle(dj.Computed):
         boostrap_unit_score_null		: float
         """
 
-    def sample_from_x(self, x, dataset, sample_size):
-        return np.random.choice(np.where(np.isin(dataset, x))[0], sample_size, replace=False)
+    def sample_from_id_or_hash(self, id_or_hash, dataset, sample_size):
+        return np.random.choice(np.where(dataset == id_or_hash)[0], sample_size, replace=False)
 
     def compute_oracle(self, outputs):
         r = outputs.shape[0]
         mu = outputs.mean(axis=0, keepdims=True)
         oracles = (mu - outputs / r) * r / (r - 1)
-        return corr(outputs, oracles, axis=0)
+        return oracles
+
+    def check_input(self, inputs):
+        assert np.all(np.abs(np.diff(inputs, axis=0)) ==
+                      0), 'Images of oracle trials do not match'
 
     def sample_and_compute_oracle(self, dataset, frame_image_ids, condition_hashes, sample_size):
         num_natim = len(frame_image_ids)
         num_noise = len(condition_hashes)
+        total_imgs = num_natim + num_noise
 
+        # Consturct boolean matrix for null sampling
         is_natim_list = [True] * num_natim
         is_natim_list += [False] * num_noise
 
-        # True Oracle Sampling
-        true_index = np.random.choice(len(is_natim_list))
-        if true_index < num_natim:
-            id_or_hash = frame_image_ids[true_index]
-        else:
-            id_or_hash = condition_hashes[true_index - num_natim]
+        # Save into memeory to save time from pulling it every time
+        responses = dataset.responses
+        dataset_frame_image_id = dataset.info.frame_image_id
+        dataset_condition_hashes = dataset.condition_hashes
+        dataset_images = dataset.images
 
-        if is_natim_list[true_index]:
-            true_target_indices = self.sample_from_x(id_or_hash, dataset.info.frame_image_id, sample_size)
-        else:
-            true_target_indices = self.sample_from_x(id_or_hash, dataset.condition_hashes, sample_size)
-            
-        # Null Oracle Sampling
-        null_indices = np.random.choice(len(is_natim_list), sample_size, replace=False)
-        null_target_indices = np.empty(shape=[len(null_indices)], dtype='int_')
-        for i, index in enumerate(null_indices):
-            if index < num_natim:
-                id_or_hash = frame_image_ids[index]
-            else:
-                id_or_hash = condition_hashes[index - num_natim]
-            
-            if is_natim_list[index]:
-                null_target_indices[i] = self.sample_from_x(id_or_hash, dataset.info.frame_image_id, 1)
-            else:
-                null_target_indices[i] = self.sample_from_x(id_or_hash, dataset.condition_hashes, 1)
-            
-        # Create True and Null Response matrix
-        true_response_matrix = np.take(dataset.responses, true_target_indices, axis=0)
-        null_response_matrix = np.take(dataset.responses, null_target_indices, axis=0)
+        # True oracle computation
+        # Matrices to store results
+        true_responses = np.empty(
+            shape=[total_imgs, sample_size, responses.shape[1]])
+        true_oracles = np.empty(
+            shape=[total_imgs, sample_size, responses.shape[1]])
 
-        return self.compute_oracle(true_response_matrix), self.compute_oracle(null_response_matrix)
+        for i in range(0, num_natim):
+            true_target_index = self.sample_from_id_or_hash(
+                frame_image_ids[i], dataset_frame_image_id, sample_size)
+            self.check_input(dataset_images[true_target_index])
+
+            response_matrix = responses[true_target_index]
+            true_responses[i] = response_matrix
+            true_oracles[i] = self.compute_oracle(response_matrix)
+
+        for i in range(0, num_noise):
+            true_target_index = self.sample_from_id_or_hash(
+                condition_hashes[i], dataset_condition_hashes, sample_size)
+            self.check_input(dataset_images[true_target_index])
+
+            response_matrix = responses[true_target_index]
+            true_responses[i + num_natim] = response_matrix
+            true_oracles[i + num_natim] = self.compute_oracle(response_matrix)
+
+        # corr(response_matrices, oracle_matrices, axis=0)
+        # Null oracle computation
+        null_responses = np.empty(
+            shape=[total_imgs, sample_size, responses.shape[1]])
+        null_oracles = np.empty(
+            shape=[total_imgs, sample_size, responses.shape[1]])
+
+        for i in range(0, total_imgs):
+            target_indices = np.random.choice(
+                len(is_natim_list), sample_size, replace=False)
+            null_target_indices = np.empty(
+                shape=[len(target_indices)], dtype='int_')
+
+            for j, null_index in enumerate(target_indices):
+                # Determine if it is in natrual images or not
+                if null_index < num_natim:
+                    id_or_hash = frame_image_ids[null_index]
+                else:
+                    id_or_hash = condition_hashes[null_index - num_natim]
+
+                # Sample from respective datasets
+                if is_natim_list[null_index]:
+                    null_target_indices[j] = self.sample_from_id_or_hash(
+                        id_or_hash, dataset_frame_image_id, 1)
+                else:
+                    null_target_indices[j] = self.sample_from_id_or_hash(
+                        id_or_hash, dataset_condition_hashes, 1)
+
+            response_matrix = responses[null_target_indices]
+            null_responses[i] = response_matrix
+            null_oracles[i] = self.compute_oracle(response_matrix)
+
+        true_responses = true_responses.reshape([-1, responses.shape[1]])
+        true_oracles = true_oracles.reshape([-1, responses.shape[1]])
+        null_responses = null_responses.reshape([-1, responses.shape[1]])
+        null_oracles = null_oracles.reshape([-1, responses.shape[1]])
+
+        return corr(true_responses, true_oracles, axis=0), corr(null_responses, null_oracles, axis=0)
 
     def make(self, key):
         dataset = load_dataset(key)
@@ -254,7 +298,7 @@ class BootstrapOracle(dj.Computed):
             *stim_tup.fetch1('num_oracle_stims', 'min_trial_repeats'))
 
         np.random.seed(key['oracle_bootstrap_seed'])
-        
+
         true_pearson, null_pearson = self.sample_and_compute_oracle(
             dataset, frame_image_ids, condition_hashes, sample_size)
 
