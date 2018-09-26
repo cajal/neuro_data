@@ -117,62 +117,39 @@ class OracleStims(dj.Computed):
         dataset = StaticImageSet(h5filename, *data_names)
 
         # Get all frame_image_ids for repeated stimulus.image that repeates more than 4
-        all_stimulus_unique_frame_id, all_stimulus_unique_frame_id_count = np.unique(
+        all_frame_ids, all_frame_ids_counts = np.unique(
             dataset.info.frame_image_id[dataset.types == 'stimulus.Frame'], return_counts=True)
-        frame_image_ids = all_stimulus_unique_frame_id[
-            all_stimulus_unique_frame_id_count >= min_num_of_repeats]
+        frame_id_counts_mask = all_frame_ids_counts >= min_num_of_repeats
+        frame_image_ids = all_frame_ids[frame_id_counts_mask]
 
         # Get all condition_hash for repeated ~stimulus.image that repeates more than 4
-        all_not_stimulus_unique_frames, all_not_stimulus_unique_frames_count = np.unique(
+        all_cond_hashes, all_cond_hash_counts = np.unique(
             dataset.condition_hashes[dataset.types != 'stimulus.Frame'], return_counts=True)
-        condition_hashes = all_not_stimulus_unique_frames[
-            all_not_stimulus_unique_frames_count >= min_num_of_repeats]
+        cond_hash_counts_mask = all_cond_hash_counts >= min_num_of_repeats
+        condition_hashes = all_cond_hashes[cond_hash_counts_mask]
 
         # Compute min_trial_repeats for both natural images and noise, also determine stimulus.type
-        stimulus_type = ''
-
-        temp = all_stimulus_unique_frame_id_count[all_stimulus_unique_frame_id_count >=
-                                                  min_num_of_repeats]
-        if temp.size > 0:
-            minumum_natural_image_trials = temp.min()
-            stimulus_type = 'stimulus.Frame'
-        else:
-            minumum_natural_image_trials = 0
-
-        temp = all_not_stimulus_unique_frames_count[
-            all_not_stimulus_unique_frames_count >= min_num_of_repeats]
-        if temp.size > 0:
-            minumum_noise_image_trials = temp.min()
-            if stimulus_type == 'stimulus.Frame':
-                stimulus_type += '|~stimulus.Frame'
-            else:
-                stimulus_type = '~stimulus.Frame'
-        else:
-            minumum_noise_image_trials = 0
-
-        # Deteremine min_trial_repeats based on the values above
-        min_trial_repeats = np.array(
-            [minumum_natural_image_trials, minumum_noise_image_trials])
-        min_trial_repeats = min_trial_repeats[min_trial_repeats > 0]
-        if min_trial_repeats.size == 0:
-            min_trial_repeats = 0
-        elif min_trial_repeats.size == 2:
-            min_trial_repeats = min(min_trial_repeats)
-        else:
-            min_trial_repeats = min_trial_repeats[0]
-
+        min_trial_repeats = []
+        stim_types = []
+        if len(frame_image_ids) > 0:
+            min_trial_repeats.append(all_frame_ids_counts[frame_id_counts_mask].min())
+            stim_types.append('stimulus.Frame')
+        if len(condition_hashes) > 0:
+            min_trial_repeats.append(all_cond_hash_counts[cond_hash_counts_mask].min())
+            stim_types.append('~stimulus.Frame')
+        
+        if len(min_trial_repeats) == 0:
+            raise Exception('Dataset does not contain trial repeats')
+        
         chashes_json = json.dumps(condition_hashes.tolist())
         assert len(
             chashes_json) < 8000, 'condition hashes exceeds 8000 characters'
-
-        # Fill in table
-        key['stimulus_type'] = stimulus_type
+        key['stimulus_type'] = '|'.join(stim_types)
         key['frame_image_ids'] = frame_image_ids
         key['condition_hashes_json'] = chashes_json
         key['num_oracle_stims'] = frame_image_ids.size + condition_hashes.size
-        key['min_trial_repeats'] = min_trial_repeats
+        key['min_trial_repeats'] = np.min(min_trial_repeats)
         self.insert1(key)
-
 
 @schema
 class BootstrapOracleSeed(dj.Lookup):
