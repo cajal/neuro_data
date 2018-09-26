@@ -196,18 +196,53 @@ class BootstrapOracle(dj.Computed):
         boostrap_unit_score_null		: float
         """
 
+    def sample_from_x(self, x, dataset, sample_size):
+        return np.random.choice(np.where(np.isin(dataset, x))[0], sample_size, replace=False)
+
     def compute_oracle(self, outputs):
         r = outputs.shape[0]
         mu = outputs.mean(axis=0, keepdims=True)
         oracles = (mu - outputs / r) * r / (r - 1)
         return corr(outputs, oracles, axis=0)
 
-    def sample_dataset_indices(self, dataset, id_or_hash, is_natim, samp_size):
-        pass
+    def sample_and_compute_oracle(self, dataset, frame_image_ids, condition_hashes, sample_size):
+        num_natim = len(frame_image_ids)
+        num_noise = len(condition_hashes)
 
-    def sample_and_compute_oracle(self, dataset, frame_image_ids,
-                                  condition_hashes, sample_size):
-        return 1, 2
+        is_natim_list = [True] * num_natim
+        is_natim_list += [False] * num_noise
+
+        # True Oracle Sampling
+        true_index = np.random.choice(len(is_natim_list))
+        if true_index < num_natim:
+            id_or_hash = frame_image_ids[true_index]
+        else:
+            id_or_hash = condition_hashes[true_index - num_natim]
+
+        if is_natim_list[true_index]:
+            true_target_indices = self.sample_from_x(id_or_hash, dataset.info.frame_image_id, sample_size)
+        else:
+            true_target_indices = self.sample_from_x(id_or_hash, dataset.condition_hashes, sample_size)
+            
+        # Null Oracle Sampling
+        null_indices = np.random.choice(len(is_natim_list), sample_size, replace=False)
+        null_target_indices = np.empty(shape=[len(null_indices)], dtype='int_')
+        for i, index in enumerate(null_indices):
+            if index < num_natim:
+                id_or_hash = frame_image_ids[index]
+            else:
+                id_or_hash = condition_hashes[index - num_natim]
+            
+            if is_natim_list[index]:
+                null_target_indices[i] = self.sample_from_x(id_or_hash, dataset.info.frame_image_id, 1)
+            else:
+                null_target_indices[i] = self.sample_from_x(id_or_hash, dataset.condition_hashes, 1)
+            
+        # Create True and Null Response matrix
+        true_response_matrix = np.take(dataset.responses, true_target_indices, axis=0)
+        null_response_matrix = np.take(dataset.responses, null_target_indices, axis=0)
+
+        return self.compute_oracle(true_response_matrix), self.compute_oracle(null_response_matrix)
 
     def make(self, key):
         dataset = load_dataset(key)
