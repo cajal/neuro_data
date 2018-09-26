@@ -219,7 +219,7 @@ class BootstrapOracle(dj.Computed):
         is_natim_list += [False] * num_noise
 
         # Save into memeory to save time from pulling it every time
-        responses = dataset.responses
+        dataset_responses = dataset.responses
         dataset_frame_image_id = dataset.info.frame_image_id
         dataset_condition_hashes = dataset.condition_hashes
         dataset_images = dataset.images
@@ -227,16 +227,16 @@ class BootstrapOracle(dj.Computed):
         # True oracle computation
         # Matrices to store results
         true_responses = np.empty(
-            shape=[total_imgs, sample_size, responses.shape[1]])
+            shape=[total_imgs, sample_size, dataset_responses.shape[1]])
         true_oracles = np.empty(
-            shape=[total_imgs, sample_size, responses.shape[1]])
+            shape=[total_imgs, sample_size, dataset_responses.shape[1]])
 
         for i in range(0, num_natim):
             true_target_index = self.sample_from_id_or_hash(
                 frame_image_ids[i], dataset_frame_image_id, sample_size)
             self.check_input(dataset_images[true_target_index])
 
-            response_matrix = responses[true_target_index]
+            response_matrix = dataset_responses[true_target_index]
             true_responses[i] = response_matrix
             true_oracles[i] = self.compute_oracle(response_matrix)
 
@@ -245,46 +245,45 @@ class BootstrapOracle(dj.Computed):
                 condition_hashes[i], dataset_condition_hashes, sample_size)
             self.check_input(dataset_images[true_target_index])
 
-            response_matrix = responses[true_target_index]
+            response_matrix = dataset_responses[true_target_index]
             true_responses[i + num_natim] = response_matrix
             true_oracles[i + num_natim] = self.compute_oracle(response_matrix)
 
-        # corr(response_matrices, oracle_matrices, axis=0)
         # Null oracle computation
         null_responses = np.empty(
-            shape=[total_imgs, sample_size, responses.shape[1]])
+            shape=[total_imgs, sample_size, dataset_responses.shape[1]])
         null_oracles = np.empty(
-            shape=[total_imgs, sample_size, responses.shape[1]])
+            shape=[total_imgs, sample_size, dataset_responses.shape[1]])
 
         for i in range(0, total_imgs):
-            target_indices = np.random.choice(
+            id_or_hash_indices = np.random.choice(
                 len(is_natim_list), sample_size, replace=False)
             null_target_indices = np.empty(
-                shape=[len(target_indices)], dtype='int_')
+                shape=[len(id_or_hash_indices)], dtype='int_')
 
-            for j, null_index in enumerate(target_indices):
+            for j, id_or_hash_indx in enumerate(id_or_hash_indices):
                 # Determine if it is in natrual images or not
-                if null_index < num_natim:
-                    id_or_hash = frame_image_ids[null_index]
+                if id_or_hash_indx < num_natim:
+                    id_or_hash = frame_image_ids[id_or_hash_indx]
                 else:
-                    id_or_hash = condition_hashes[null_index - num_natim]
+                    id_or_hash = condition_hashes[id_or_hash_indx - num_natim]
 
                 # Sample from respective datasets
-                if is_natim_list[null_index]:
+                if is_natim_list[id_or_hash_indx]:
                     null_target_indices[j] = self.sample_from_id_or_hash(
                         id_or_hash, dataset_frame_image_id, 1)
                 else:
                     null_target_indices[j] = self.sample_from_id_or_hash(
                         id_or_hash, dataset_condition_hashes, 1)
 
-            response_matrix = responses[null_target_indices]
+            response_matrix = dataset_responses[null_target_indices]
             null_responses[i] = response_matrix
             null_oracles[i] = self.compute_oracle(response_matrix)
 
-        true_responses = true_responses.reshape([-1, responses.shape[1]])
-        true_oracles = true_oracles.reshape([-1, responses.shape[1]])
-        null_responses = null_responses.reshape([-1, responses.shape[1]])
-        null_oracles = null_oracles.reshape([-1, responses.shape[1]])
+        true_responses = true_responses.reshape([-1, dataset_responses.shape[1]])
+        true_oracles = true_oracles.reshape([-1, dataset_responses.shape[1]])
+        null_responses = null_responses.reshape([-1, dataset_responses.shape[1]])
+        null_oracles = null_oracles.reshape([-1, dataset_responses.shape[1]])
 
         return corr(true_responses, true_oracles, axis=0), corr(null_responses, null_oracles, axis=0)
 
