@@ -267,15 +267,20 @@ class BootstrapOracle(dj.Computed):
             inputs[i] = dataset[index].inputs
         assert np.all(np.abs(np.diff(inputs, axis=0)) == 0), 'Images of oracle trials do not match'
 
-    def sample_frames_from_dataset(self, index, dataset, min_frames, num_of_neurons):
+    def sample_frames_from_dataset(self, target_indices, dataset, min_frames, num_of_neurons):
         # Compute start_index
         starting_index = 0
-        upper_bound = dataset[index].responses.shape[0] - min_frames
-    
-        if upper_bound != 0:
+        
+        upper_bound = np.min([dataset[index].responses.shape[0] for index in target_indices])
+        
+        if upper_bound - min_frames != 0:
             starting_index = np.random.randint(0, upper_bound)
-            
-        return dataset[index].responses[starting_index:starting_index+min_frames]
+
+        response_matrix = np.empty(shape=[target_indices.size, min_frames, num_of_neurons])
+        for i, index in enumerate(target_indices):
+            response_matrix[i] = dataset[index].responses[starting_index:starting_index+min_frames]
+
+        return response_matrix
 
     def compute_oracle(self, outputs):
         r = outputs.shape[0]
@@ -285,66 +290,46 @@ class BootstrapOracle(dj.Computed):
 
     def sample_and_compute_oracle(self, dataset, condition_hashes, sample_size, min_frames):
         num_of_neurons = dataset[0].responses.shape[1]
-        
+        dataset_condition_hashes = dataset.condition_hashes
+
         # Oracle compuatation
         true_responses = np.empty(shape=[len(condition_hashes), sample_size * min_frames, num_of_neurons])
         true_oracles = np.empty(shape=[len(condition_hashes), sample_size * min_frames, num_of_neurons])
-        
+
         null_responses = np.empty(shape=[len(condition_hashes), sample_size * min_frames, num_of_neurons])
         null_oracles = np.empty(shape=[len(condition_hashes), sample_size * min_frames, num_of_neurons])
-        
-        response_matrix = np.empty(shape=[sample_size, min_frames, num_of_neurons]) # this is a temp storage for data extraction
-        
-        for i in range(0, len(condition_hashes)):
-            num_of_neurons = dataset[0].responses.shape[1]
-            dataset_condition_hashes = dataset.condition_hashes
-            # Oracle compuatation
-            true_responses = np.empty(shape=[len(condition_hashes), sample_size * min_frames, num_of_neurons])
-            true_oracles = np.empty(shape=[len(condition_hashes), sample_size *  min_frames, num_of_neurons])
-            
-            null_responses = np.empty(shape=[len(condition_hashes), sample_size * min_frames, num_of_neurons])
-            null_oracles = np.empty(shape=[len(condition_hashes), sample_size *  min_frames, num_of_neurons])
-            
-            response_matrix = np.empty(shape=[sample_size, min_frames, num_of_neurons]) # this is a temp storage for data extraction
-            
-            for i in range(0, len(condition_hashes)):
-                # True Oracle Computation
-                # For each condition_hashes, sample (sample_size) trials to construct the true_response_matrix
-                # Select (sample_size) trials
-                
-                true_target_indices = self.sample_from_condition_hash(condition_hashes[i], dataset_condition_hashes, sample_size)
-                self.check_input(true_target_indices, dataset)
-                
-                
-                for j, index in enumerate(true_target_indices):
-                    response_matrix[j] = self.sample_frames_from_dataset(index, dataset, min_frames, num_of_neurons)
-                    
-                true_responses[i] = response_matrix.reshape(-1, response_matrix.shape[-1])
-                true_oracles[i] = self.compute_oracle(response_matrix)
-                
-                # Null Oracle Computation
-                # Select (samples_size) hashes and sample from them
-                target_hashes = np.random.choice(dataset_condition_hashes, sample_size, replace=False)
-                null_target_indices = np.empty(shape=[target_hashes.size], dtype='int_')
-                
-                # Get the target indices
-                for j, target_hash in enumerate(target_hashes):
-                    null_target_indices[j] = self.sample_from_condition_hash(target_hash, dataset_condition_hashes, 1)
-                    
-                # Sample for each target index
-                for j, index in enumerate(null_target_indices):
-                    response_matrix[j] = self.sample_frames_from_dataset(index, dataset, min_frames, num_of_neurons)
-                
-                null_responses[i] = response_matrix.reshape(-1, response_matrix.shape[-1])
-                null_oracles[i] = self.compute_oracle(response_matrix)
-                
-                
-            true_responses = true_responses.reshape(-1, num_of_neurons)
-            true_oracles = true_oracles.reshape(-1, num_of_neurons)
-            null_responses = null_responses.reshape(-1, num_of_neurons)
-            null_oracles = null_oracles.reshape(-1, num_of_neurons)
 
-            return corr(true_responses, null_responses, axis=0), corr(null_responses, null_oracles, axis=0)
+
+        for i in range(0, len(condition_hashes)):
+            # True Oracle Computation
+            # For each condition_hashes, sample (sample_size) trials to construct the true_response_matrix
+            # Select (sample_size) trials
+
+            true_target_indices = self.sample_from_condition_hash(condition_hashes[i], dataset_condition_hashes, sample_size)
+            self.check_input(true_target_indices, dataset)
+
+            response_matrix = self.sample_frames_from_dataset(true_target_indices, dataset, min_frames, num_of_neurons)
+            true_responses[i] = response_matrix.reshape(-1, response_matrix.shape[-1])
+            true_oracles[i] = self.compute_oracle(response_matrix)
+
+            # Null Oracle Computation
+            # Select (samples_size) hashes and sample from them
+            target_hashes = np.random.choice(dataset_condition_hashes, sample_size, replace=False)
+
+            # Get target_indices
+            null_target_indices = np.array([sample_from_condition_hash(h, dataset_condition_hashes, 1)[0] for h in target_hashes])
+
+            # Sample for each target index
+            response_matrix = self.sample_frames_from_dataset(null_target_indices, dataset, min_frames, num_of_neurons)
+            null_responses[i] = response_matrix.reshape(-1, response_matrix.shape[-1])
+            null_oracles[i] = self.compute_oracle(response_matrix)
+
+        true_responses = true_responses.reshape(-1, num_of_neurons)
+        true_oracles = true_oracles.reshape(-1, num_of_neurons)
+        null_responses = null_responses.reshape(-1, num_of_neurons)
+        null_oracles = null_oracles.reshape(-1, num_of_neurons)
+
+        return corr(true_responses, null_responses, axis=0), corr(null_responses, null_oracles, axis=0)
 
     def make(self, key):
         log.info('Populating {}'.format(key))
