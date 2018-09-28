@@ -329,7 +329,7 @@ class BootstrapOracle(dj.Computed):
         null_responses = null_responses.reshape(-1, num_of_neurons)
         null_oracles = null_oracles.reshape(-1, num_of_neurons)
 
-        return corr(true_responses, null_responses, axis=0), corr(null_responses, null_oracles, axis=0)
+        return corr(true_responses, true_oracles, axis=0), corr(null_responses, null_oracles, axis=0)
 
     def make(self, key):
         log.info('Populating {}'.format(key))
