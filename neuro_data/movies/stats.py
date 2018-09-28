@@ -306,9 +306,9 @@ class BootstrapOracle(dj.Computed):
             # Select (sample_size) trials
 
             true_target_indices = self.sample_from_condition_hash(condition_hashes[i], dataset_condition_hashes, sample_size)
-            self.check_input(true_target_indices, dataset)
-
+            
             response_matrix = self.sample_frames_from_dataset(true_target_indices, dataset, min_frames, num_of_neurons)
+            self.check_input(true_target_indices, dataset)
             true_responses[i] = response_matrix.reshape(-1, response_matrix.shape[-1])
             true_oracles[i] = self.compute_oracle(response_matrix)
 
