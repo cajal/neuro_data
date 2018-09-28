@@ -206,13 +206,6 @@ class OracleStims(dj.Computed):
             stimulus_type = '~stimulus.Clip'
         else:
             raise Exception('Dataset does not contain trial repeats')
-
-        # compute min_frames
-        target_indices = np.where(np.isin(dataset_condition_hashes, condition_hashes))[0]
-        frames_count = np.empty(shape=[target_indices.size])
-
-        for i, index in enumerate(target_indices):
-            frames_count[i] = dataset[index].responses.shape[0]
             
         # Convert conditon_hashes into json object
         condition_hashes_json = json.dumps(condition_hashes.tolist())
@@ -222,6 +215,6 @@ class OracleStims(dj.Computed):
         key['condition_hashes_json'] = condition_hashes_json
         key['num_oracle_stims'] = condition_hashes.size
         key['min_trial_repeats'] = counts[mask].min()
-        key['min_frames'] = frames_count.min()
+        key['min_frames'] = np.min([dataset[indx].responses.shape[0] for indx in np.where(np.isin(dataset_condition_hashes, condition_hashes))[0]])
 
         self.insert1(key)
