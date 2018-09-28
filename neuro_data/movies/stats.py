@@ -14,6 +14,7 @@ import imageio
 import io
 import numpy as np
 import cv2
+import json
 from .schema_bridge import *
 from tqdm import tqdm
 from scipy.signal import convolve2d
@@ -22,6 +23,7 @@ from .data_schemas import MovieMultiDataset, MovieScan
 from .configs import DataConfig
 
 schema = dj.schema('neurodata_moviestats', locals())
+data_schemas = dj.create_virtual_module('data_schemas', 'neurodata_movies')
 
 
 @schema
@@ -146,3 +148,72 @@ class Oracle(dj.Computed):
             self.UnitPearson().insert(
                 [dict(member_key, pearson=c, unit_id=u) for u, c in tqdm(zip(unit_ids, pearson), total=len(unit_ids))],
                 ignore_extra_fields=True)
+
+
+def load_dataset(key):
+    from neuro_data.movies.data_schemas import InputResponse, Eye, Treadmill, MovieSet
+    for mkey in (InputResponse & key).fetch(dj.key, order_by='animal_id ASC, session ASC, scan_idx ASC, preproc_id ASC'):
+        include_behavior = bool(Eye() * Treadmill() & mkey)
+        data_names = ['inputs', 'responses'] if not include_behavior \
+            else ['inputs',
+                  'behavior',
+                  'eye_position',
+                  'responses']
+        
+        filename = InputResponse().get_filename(mkey)
+
+        return MovieSet(filename, *data_names)
+
+
+@schema
+class OracleStims(dj.Computed):
+    definition = """
+    -> data_schemas.InputResponse
+    ---
+    stimulus_type           : varchar(64)   # {stimulus.Frame, ~stimulus.Frame, stimulus.Frame|~stimulus.Frame}
+    condition_hashes_json   : varchar(8000) # Json (list) of condition_hashes that has at least 4 (Arbitary) repeats
+    num_oracle_stims        : int           # num of unique stimuli that have >= 4 repeat presentations
+    min_trial_repeats       : int           # The min_num_of_occurances in the condition_hashes array
+    """
+
+    @property
+    def key_source(self):
+        from .data_schemas import MovieMultiDataset, InputResponse
+        return InputResponse & (MovieMultiDataset.Member & 'group_id!=11' & 'group_id!=12' & 'group_id!=13')
+
+    def make(self, key):
+        min_num_of_repeats = 4 # Arbitary requirment
+
+        dataset = load_dataset(key)
+        dataset_condition_hashes = dataset.condition_hashes
+        dataset_stimulus_type = dataset.types
+
+        # Find conditions_hashes that repeats more than min_num_of_repeats
+        unique_condition_hashes, counts = np.unique(dataset_condition_hashes, return_counts=True)
+        mask = counts > min_num_of_repeats
+
+        condition_hashes = unique_condition_hashes[mask]
+
+        # Determine stimulus type
+        unique_stimulus_types = np.unique(dataset_stimulus_type[np.isin(dataset_condition_hashes, condition_hashes)])
+
+        if 'stimulus.Clip' in unique_stimulus_types:
+            stimulus_type = 'stimulus.Clip'
+            if unique_stimulus_types.size > 1:
+                stimulus_type += '|~stimulus.Clip'
+        elif unique_stimulus_types.size > 1:
+            stimulus_type += '~stimulus.Clip'
+        else:
+            print((MovieMultiDataset.Member & key).fetch('group_id'))
+            raise Exception('Dataset does not contain trial repeats')
+            
+        # Convert conditon_hashes into json object
+        condition_hashes_json = json.dumps(condition_hashes.tolist())
+        assert len(condition_hashes_json) < 8000, 'condition hashes exceeds 8000 characters'
+        
+        key['stimulus_type'] = stimulus_type
+        key['condition_hashes_json'] = condition_hashes_json
+        key['num_oracle_stims'] = condition_hashes.size
+        key['min_trial_repeats'] = counts[mask].min()
+
+        self.insert1(key)
