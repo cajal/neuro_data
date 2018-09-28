@@ -174,6 +174,7 @@ class OracleStims(dj.Computed):
     condition_hashes_json   : varchar(8000) # Json (list) of condition_hashes that has at least 4 (Arbitary) repeats
     num_oracle_stims        : int           # num of unique stimuli that have >= 4 repeat presentations
     min_trial_repeats       : int           # The min_num_of_occurances in the condition_hashes array
+    min_frames              : int           # min_num of frames in the condtion_hash set
     """
 
     @property
@@ -205,6 +206,13 @@ class OracleStims(dj.Computed):
             stimulus_type = '~stimulus.Clip'
         else:
             raise Exception('Dataset does not contain trial repeats')
+
+        # compute min_frames
+        target_indices = np.where(np.isin(dataset_condition_hashes, condition_hashes))[0]
+        frames_count = np.empty(shape=[target_indices.size])
+
+        for i, index in enumerate(target_indices):
+            frames_count[i] = dataset[index].responses.shape[0]
             
         # Convert conditon_hashes into json object
         condition_hashes_json = json.dumps(condition_hashes.tolist())
@@ -214,5 +222,6 @@ class OracleStims(dj.Computed):
         key['condition_hashes_json'] = condition_hashes_json
         key['num_oracle_stims'] = condition_hashes.size
         key['min_trial_repeats'] = counts[mask].min()
+        key['min_frames'] = frames_count.min()
 
         self.insert1(key)
