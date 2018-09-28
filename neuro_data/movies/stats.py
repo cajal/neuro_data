@@ -317,7 +317,7 @@ class BootstrapOracle(dj.Computed):
             target_hashes = np.random.choice(dataset_condition_hashes, sample_size, replace=False)
 
             # Get target_indices
-            null_target_indices = np.array([sample_from_condition_hash(h, dataset_condition_hashes, 1)[0] for h in target_hashes])
+            null_target_indices = np.array([self.sample_from_condition_hash(h, dataset_condition_hashes, 1)[0] for h in target_hashes])
 
             # Sample for each target index
             response_matrix = self.sample_frames_from_dataset(null_target_indices, dataset, min_frames, num_of_neurons)
