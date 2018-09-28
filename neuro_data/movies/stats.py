@@ -218,3 +218,144 @@ class OracleStims(dj.Computed):
         key['min_frames'] = np.min([dataset[index].responses.shape[0] for index in np.where(np.isin(dataset_condition_hashes, condition_hashes))[0]])
 
         self.insert1(key)
+
+@schema
+class BootstrapOracleSeed(dj.Lookup):
+    definition = """
+    oracle_bootstrap_seed                 :  int # random seed
+    ---
+    """
+
+    @property
+    def contents(self):
+        for seed in list(range(100)):
+            yield (seed,)
+
+@schema
+class BootstrapOracle(dj.Computed):
+    definition = """
+    -> OracleStims
+    -> BootstrapOracleSeed
+    ---
+    """
+
+    class Score(dj.Part):
+        definition = """
+        -> master
+        ---
+        boostrap_score_true			    : float
+        boostrap_score_null			    : float
+        """
+
+    class UnitScore(dj.Part):
+        definition = """
+        -> master
+        -> MovieScan.Unit
+        ---
+        boostrap_unit_score_true		: float
+        boostrap_unit_score_null		: float
+        """
+
+    def sample_from_condition_hash(self, target_hash, dataset, sample_size):
+        return np.random.choice(np.where(dataset == target_hash)[0], sample_size, replace=False)
+
+    def check_input(self, target_indices, dataset):
+        dataset_images_shape = dataset[target_indices[0]].inputs.shape
+        inputs = np.empty(shape=[len(target_indices), dataset_images_shape[0], dataset_images_shape[1], dataset_images_shape[2], dataset_images_shape[3]])
+        for i, index in enumerate(target_indices):
+            inputs[i] = dataset[index].inputs
+        assert np.all(np.abs(np.diff(inputs, axis=0)) == 0), 'Images of oracle trials do not match'
+
+    def sample_frames_from_dataset(self, index, dataset, min_frames, num_of_neurons):
+        # Compute start_index
+        starting_index = 0
+        upper_bound = dataset[index].responses.shape[0] - min_frames
+    
+        if upper_bound != 0:
+            starting_index = np.random.randint(0, upper_bound)
+            
+        # Sampling min_frames from dataset
+        frame_responses = np.empty(shape=[min_frames, num_of_neurons])
+        for i in range(0, min_frames):
+            frame_responses[i] = dataset[index].responses[i + starting_index]
+            
+        return frame_responses
+
+    def compute_oracle(self, outputs):
+        r = outputs.shape[0]
+        mu = outputs.mean(axis=0, keepdims=True)
+        oracles = ((mu - outputs / r) * r / (r - 1)).reshape(-1, outputs.shape[-1])
+        return oracles
+
+    def sample_and_compute_oracle(self, dataset, condition_hashes, sample_size, min_frames):
+        num_of_neurons = dataset[0].responses.shape[1]
+        
+        # Oracle compuatation
+        true_responses = np.empty(shape=[len(condition_hashes), sample_size * min_frames, num_of_neurons])
+        true_oracles = np.empty(shape=[len(condition_hashes), sample_size * min_frames, num_of_neurons])
+        
+        null_responses = np.empty(shape=[len(condition_hashes), sample_size * min_frames, num_of_neurons])
+        null_oracles = np.empty(shape=[len(condition_hashes), sample_size * min_frames, num_of_neurons])
+        
+        response_matrix = np.empty(shape=[sample_size, min_frames, num_of_neurons]) # this is a temp storage for data extraction
+        
+        for i in range(0, len(condition_hashes)):
+            # True Oracle Computation
+            # For each condition_hashes, sample (sample_size) trials to construct the true_response_matrix
+            # Select (sample_size) trials
+            
+            true_target_indices = self.sample_from_condition_hash(condition_hashes[i], dataset.condition_hashes, sample_size)
+            self.check_input(true_target_indices, dataset)
+            
+            
+            for j, index in enumerate(true_target_indices):
+                response_matrix[j] = self.sample_frames_from_dataset(index, dataset, min_frames, num_of_neurons)
+                
+            true_responses[i] = response_matrix.reshape(-1, response_matrix.shape[-1])
+            true_oracles[i] = self.compute_oracle(response_matrix)
+            
+        
+            # Null Oracle Computation
+            # Select (samples_size) hashes and sample from them
+            target_hashes = np.random.choice(dataset.condition_hashes, sample_size, replace=False)
+            null_target_indices = np.empty(shape=[target_hashes.size], dtype='int_')
+            
+            # Get the target indices
+            for j, target_hash in enumerate(target_hashes):
+                null_target_indices[j] = self.sample_from_condition_hash(target_hash, dataset.condition_hashes, 1)
+                
+            # Sample for each target index
+            for j, index in enumerate(null_target_indices):
+                response_matrix[j] = self.sample_frames_from_dataset(index, dataset, min_frames, num_of_neurons)
+            
+            null_responses[i] = response_matrix.reshape(-1, response_matrix.shape[-1])
+            null_oracles[i] = self.compute_oracle(response_matrix)
+
+        true_responses = true_responses.reshape(-1, num_of_neurons)
+        true_oracles = true_oracles.reshape(-1, num_of_neurons)
+        null_responses = null_responses.reshape(-1, num_of_neurons)
+        null_oracles = null_oracles.reshape(-1, num_of_neurons)
+    
+        return corr(true_responses, null_responses, axis=0), corr(null_responses, null_oracles, axis=0)
+
+    def make(self, key):
+        log.info('Populating {}'.format(key))
+
+        dataset = load_dataset(key)
+
+        stim_tup = OracleStims & key
+        condition_hashes = json.loads(stim_tup.fetch1('condition_hashes_json'))
+        sample_size = min(stim_tup.fetch1('num_oracle_stims', 'min_trial_repeats'))
+        min_frames = stim_tup.fetch1('min_frames')
+
+        np.random.seed(key['oracle_bootstrap_seed']) # Add this later once you get the table
+
+        true_pearson, null_pearson = self.sample_and_compute_oracle(dataset, condition_hashes, sample_size, min_frames)
+
+        self.insert1(key)
+        # Inserting pearson mean scores to Score table
+        self.Score().insert1(dict(key, boostrap_score_true=true_pearson.mean(),
+                                  boostrap_score_null=null_pearson.mean()))
+        # Inserting unit pearson scores
+        self.UnitScore().insert([dict(key, unit_id=u, boostrap_unit_score_true=t, boostrap_unit_score_null=n)
+                                 for u, t, n in zip(dataset.neurons.unit_ids, true_pearson, null_pearson)])
