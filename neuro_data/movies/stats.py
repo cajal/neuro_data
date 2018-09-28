@@ -275,12 +275,7 @@ class BootstrapOracle(dj.Computed):
         if upper_bound != 0:
             starting_index = np.random.randint(0, upper_bound)
             
-        # Sampling min_frames from dataset
-        frame_responses = np.empty(shape=[min_frames, num_of_neurons])
-        for i in range(0, min_frames):
-            frame_responses[i] = dataset[index].responses[i + starting_index]
-            
-        return frame_responses
+        return dataset[index].responses[starting_index:starting_index+min_frames]
 
     def compute_oracle(self, outputs):
         r = outputs.shape[0]
