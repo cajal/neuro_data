@@ -260,21 +260,16 @@ class BootstrapOracle(dj.Computed):
     def sample_from_condition_hash(self, target_hash, dataset, sample_size):
         return np.random.choice(np.where(dataset == target_hash)[0], sample_size, replace=False)
 
-    def check_input(self, target_indices, dataset):
+    def check_input(self, target_indices, dataset, min_frames):
         dataset_images_shape = dataset[target_indices[0]].inputs.shape
-        inputs = np.empty(shape=[len(target_indices), dataset_images_shape[0], dataset_images_shape[1], dataset_images_shape[2], dataset_images_shape[3]])
+        inputs = np.empty(shape=[len(target_indices), dataset_images_shape[0], min_frames, dataset_images_shape[2], dataset_images_shape[3]])
         for i, index in enumerate(target_indices):
-            inputs[i] = dataset[index].inputs
+            inputs[i] = dataset[index].inputs[0][0:min_frames]
         assert np.all(np.abs(np.diff(inputs, axis=0)) == 0), 'Images of oracle trials do not match'
 
     def sample_frames_from_dataset(self, target_indices, dataset, min_frames, num_of_neurons):
         # Compute start_index
         starting_index = 0
-        
-        upper_bound = np.min([dataset[index].responses.shape[0] for index in target_indices])
-        
-        if upper_bound - min_frames != 0:
-            starting_index = np.random.randint(0, upper_bound)
 
         response_matrix = np.empty(shape=[target_indices.size, min_frames, num_of_neurons])
         for i, index in enumerate(target_indices):
@@ -299,7 +294,6 @@ class BootstrapOracle(dj.Computed):
         null_responses = np.empty(shape=[len(condition_hashes), sample_size * min_frames, num_of_neurons])
         null_oracles = np.empty(shape=[len(condition_hashes), sample_size * min_frames, num_of_neurons])
 
-
         for i in range(0, len(condition_hashes)):
             # True Oracle Computation
             # For each condition_hashes, sample (sample_size) trials to construct the true_response_matrix
@@ -307,8 +301,10 @@ class BootstrapOracle(dj.Computed):
 
             true_target_indices = self.sample_from_condition_hash(condition_hashes[i], dataset_condition_hashes, sample_size)
             
+            # Check inputs for true_oracles
+            self.check_input(true_target_indices, dataset, min_frames)
+
             response_matrix = self.sample_frames_from_dataset(true_target_indices, dataset, min_frames, num_of_neurons)
-            self.check_input(true_target_indices, dataset)
             true_responses[i] = response_matrix.reshape(-1, response_matrix.shape[-1])
             true_oracles[i] = self.compute_oracle(response_matrix)
 
@@ -316,7 +312,7 @@ class BootstrapOracle(dj.Computed):
             # Select (samples_size) hashes and sample from them
             target_hashes = np.random.choice(dataset_condition_hashes, sample_size, replace=False)
 
-            # Get target_indices
+            # Get null_target_indices
             null_target_indices = np.array([self.sample_from_condition_hash(h, dataset_condition_hashes, 1)[0] for h in target_hashes])
 
             # Sample for each target index
@@ -340,7 +336,6 @@ class BootstrapOracle(dj.Computed):
         condition_hashes = json.loads(stim_tup.fetch1('condition_hashes_json'))
         sample_size = min(stim_tup.fetch1('num_oracle_stims', 'min_trial_repeats'))
         min_frames = stim_tup.fetch1('min_frames')
-
         np.random.seed(key['oracle_bootstrap_seed']) # Add this later once you get the table
 
         true_pearson, null_pearson = self.sample_and_compute_oracle(dataset, condition_hashes, sample_size, min_frames)
