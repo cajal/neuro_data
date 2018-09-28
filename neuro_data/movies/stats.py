@@ -201,10 +201,9 @@ class OracleStims(dj.Computed):
             stimulus_type = 'stimulus.Clip'
             if unique_stimulus_types.size > 1:
                 stimulus_type += '|~stimulus.Clip'
-        elif unique_stimulus_types.size > 1:
-            stimulus_type += '~stimulus.Clip'
+        elif unique_stimulus_types.size >= 1:
+            stimulus_type = '~stimulus.Clip'
         else:
-            print((MovieMultiDataset.Member & key).fetch('group_id'))
             raise Exception('Dataset does not contain trial repeats')
             
         # Convert conditon_hashes into json object
