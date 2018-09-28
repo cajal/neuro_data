@@ -215,6 +215,6 @@ class OracleStims(dj.Computed):
         key['condition_hashes_json'] = condition_hashes_json
         key['num_oracle_stims'] = condition_hashes.size
         key['min_trial_repeats'] = counts[mask].min()
-        key['min_frames'] = np.min([dataset[indx].responses.shape[0] for indx in np.where(np.isin(dataset_condition_hashes, condition_hashes))[0]])
+        key['min_frames'] = np.min([dataset[index].responses.shape[0] for index in np.where(np.isin(dataset_condition_hashes, condition_hashes))[0]])
 
         self.insert1(key)
