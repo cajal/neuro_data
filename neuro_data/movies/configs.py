@@ -300,8 +300,7 @@ class DataConfig(ConfigBase, dj.Lookup):
         ---
         stats_source            : varchar(50)  # normalization source
         stimulus_type           : varchar(512)  # type of stimulus
-        # what inputs to exclude from normalization
-        exclude                 : varchar(512)
+        exclude                 : varchar(512) # what inputs to exclude from normalization
         normalize               : bool         # whether to use a normalize or not
         (oracle_source) -> master
         -> experiment.Layer
@@ -397,8 +396,7 @@ class DataConfig(ConfigBase, dj.Lookup):
         ---
         stats_source            : varchar(50)  # normalization source
         stimulus_type           : varchar(512) # type of stimulus
-        # what inputs to exclude from normalization
-        exclude                 : varchar(512)
+        exclude                 : varchar(512) # what inputs to exclude from normalization
         normalize               : bool         # whether to use a normalize or not
         -> experiment.Layer
         -> anatomy.Area
