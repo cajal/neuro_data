@@ -347,3 +347,58 @@ class BootstrapOracle(dj.Computed):
         # Inserting unit pearson scores
         self.UnitScore().insert([dict(key, unit_id=u, boostrap_unit_score_true=t, boostrap_unit_score_null=n)
                                  for u, t, n in zip(dataset.neurons.unit_ids, true_pearson, null_pearson)])
+
+
+@schema
+class BootstrapOracleTTest(dj.Computed):
+    definition = """
+    -> OracleStims
+    ---
+    """
+
+    class PValue(dj.Part):
+        definition = """
+        -> master
+        ---
+        p_value             : float     # bootstrap oracle t-test p_value for dataset
+        """
+
+    class UnitPValue(dj.Part):
+        definition = """
+        -> master
+        -> MovieScan.Unit
+        ---
+        unit_p_value        : float     # bootstrap oracle t-test p_value for single neuron
+        """
+
+    @property
+    def key_source(self):
+        return super().key_source & BootstrapOracle
+
+    def make(self, key):
+        num_seeds = len(BootstrapOracleSeed())
+
+        unit_ids = (MovieScan.Unit & key).fetch('unit_id')
+        unit_scores = pd.DataFrame((BootstrapOracle.UnitScore & key).fetch())
+
+        assert len(unit_scores) == num_seeds * len(unit_ids)
+
+        # Computeing p_values for means
+        mean_scores = unit_scores.groupby('unit_id').mean()
+        _, p_value = stats.ttest_rel(
+            mean_scores.boostrap_unit_score_true.values, mean_scores.boostrap_unit_score_null.values)
+
+        # Computing unit scores
+        _, unit_p_values = stats.ttest_ind(
+            unit_scores.pivot(
+                index='unit_id', columns='oracle_bootstrap_seed',
+                values='boostrap_unit_score_true').values,
+            unit_scores.pivot(
+                index='unit_id', columns='oracle_bootstrap_seed',
+                values='boostrap_unit_score_null').values, axis=1,
+            equal_var=False)
+
+        self.insert1(key)
+        self.PValue().insert1(dict(key, p_value=p_value))
+        self.UnitPValue().insert([dict(key, unit_id=u, unit_p_value=upv)
+                                  for u, upv in zip(unit_ids, unit_p_values)])
