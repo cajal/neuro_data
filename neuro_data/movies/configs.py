@@ -268,9 +268,8 @@ class DataConfig(ConfigBase, dj.Lookup):
         -> master
         ---
         stats_source            : varchar(50)  # normalization source
-        stimulus_type           : varchar(512)  # type of stimulus
-        # what inputs to exclude from normalization
-        exclude                 : varchar(512)
+        stimulus_type           : varchar(512) # type of stimulus
+        exclude                 : varchar(512) # what inputs to exclude from normalization
         normalize               : bool         # whether to use a normalize or not
         train_seq_len           : smallint     # training sequence length in frames
         -> experiment.Layer
