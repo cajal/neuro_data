@@ -18,6 +18,7 @@ import pandas as pd
 import json
 from .schema_bridge import *
 from tqdm import tqdm
+from scipy import stats
 from scipy.signal import convolve2d
 from ..utils.data import SplineMovie, FilterMixin, SplineCurve, h5cached, NaNSpline, fill_nans
 from .data_schemas import MovieMultiDataset, MovieScan
@@ -257,6 +258,11 @@ class BootstrapOracle(dj.Computed):
         boostrap_unit_score_null		: float
         """
 
+    @property
+    def key_source(self):
+        from .data_schemas import MovieMultiDataset
+        return super().key_source & (MovieMultiDataset.Member & 'group_id in (0)')
+    
     def sample_from_condition_hash(self, target_hash, dataset, sample_size):
         return np.random.choice(np.where(dataset == target_hash)[0], sample_size, replace=False)
 
