@@ -19,8 +19,10 @@ dj.config['external-data'] = dict(
 STATIC = ['(animal_id=11521 and session=7 and scan_idx in (1,2))',
           '(animal_id=16157 and session=5 and scan_idx in (5,6))',
           '(animal_id=11677 and session=2 and scan_idx=1)',
-          '(animal_id=16312 and session=3 and scan_idx=20)'
+          '(animal_id=16312 and session=3 and scan_idx=20)',
+          '(animal_id=18765 and session=4 and scan_idx=6)'
           ]
+
 
 # set of attributes that uniquely identifies the frame content
 UNIQUE_FRAME = {
@@ -138,6 +140,7 @@ class ConditionTier(dj.Computed):
 
     @property
     def key_source(self):
+        # all static scan with at least on recorded trial
         return StaticScan() & stimulus.Trial()
 
     def check_train_test_split(self, frames, cond):
@@ -180,6 +183,8 @@ class ConditionTier(dj.Computed):
     def make(self, key):
         log.info(80 * '-')
         log.info('Processing ' + pformat(key))
+        # count the number of distinct conditions presented for each one of three stimulus types:
+        # "stimulus.Frame","stimulus.MonetFrame", "stimulus.TrippyFrame"
         conditions = dj.U('stimulus_type').aggr(stimulus.Condition() & (stimulus.Trial() & key),
                                                 count='count(*)') \
                      & 'stimulus_type in ("stimulus.Frame","stimulus.MonetFrame", "stimulus.TrippyFrame")'
@@ -765,6 +770,9 @@ class StaticMultiDataset(dj.Manual):
             ('16157-5-6', dict(animal_id=16157, session=5, scan_idx=6, preproc_id=0)),
             ('16157-5-5-scaled', dict(animal_id=16157, session=5, scan_idx=5, preproc_id=2)),
             ('16312-3-20', dict(animal_id=16312, session=3, scan_idx=20, preproc_id=0)),
+            ('11521-7-1-scaled', dict(animal_id=11521, session=7, scan_idx=1, preproc_id=2)),
+            ('11521-7-2-scaled', dict(animal_id=11521, session=7, scan_idx=1, preproc_id=2)),
+            ('16312-3-20', dict(animal_id=18765, session=4, scan_idx=6, preproc_id=0)),
         ]
         for group_id, (descr, key) in enumerate(selection):
             entry = dict(group_id=group_id, description=descr)
