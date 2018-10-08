@@ -1,21 +1,21 @@
+import io
 from collections import OrderedDict
 from functools import partial
 from itertools import count
 from pprint import pformat
 
+import cv2
+import imageio
+import numpy as np
 from attorch.dataset import H5SequenceSet
+from scipy.signal import convolve2d
+from tqdm import tqdm
 
 from neuro_data.movies.transforms import Subsequence
 from .mixins import TraceMixin
-from .. import logger as log
-import imageio
-import io
-import numpy as np
-import cv2
 from .schema_bridge import *
-from tqdm import tqdm
-from scipy.signal import convolve2d
-from ..utils.data import SplineMovie, FilterMixin, SplineCurve, h5cached, NaNSpline, fill_nans
+from .. import logger as log
+from ..utils.data import SplineMovie, FilterMixin, SplineCurve, NaNSpline, fill_nans, h5cached
 
 dj.config['external-data'] = dict(
     protocol='file',
@@ -47,6 +47,9 @@ MOVIESCANS = [  # '(animal_id=16278 and session=11 and scan_idx between 5 and 9)
     platinum.CuratedScan() & dict(animal_id=18142, scan_purpose='trainable_platinum_classic', score=4),
     platinum.CuratedScan() & dict(animal_id=17797, scan_purpose='trainable_platinum_classic') & 'score > 2',
     'animal_id=16314 and session=3 and scan_idx=1',
+    experiment.Scan() & (stimulus.Trial & stimulus.Condition() & stimulus.Monet()) & dict(animal_id=8973),
+    'animal_id=18979 and session=2 and scan_idx=7',
+    'animal_id=18799 and session=3 and scan_idx=14'
 ]
 
 
@@ -194,9 +197,10 @@ class MovieClips(dj.Computed, FilterMixin):
     -> stimulus.Condition
     -> Preprocessing
     ---
-    fps0                 : float      # original framerate
+    fps0                 : float           # original framerate
     frames               : external-data   # input movie downsampled
     sample_times         : external-data   # sample times for the new frames
+    duration             : float           # duration in seconds
     """
 
     def get_frame_rate(self, key):
@@ -279,7 +283,6 @@ class MovieClips(dj.Computed, FilterMixin):
         self.insert1(dict(key, frames=movie.transpose([2, 0, 1]), sample_times=samps, fps0=frame_rate))
 
 
-# @h5cached('/data/all_movie_data/', mode='groups')
 @h5cached('/external/cache/', mode='groups', transfer_to_tmp=False,
           file_format='movies{animal_id}-{session}-{scan_idx}-pre{preproc_id}-pipe{pipe_version}-seg{segmentation_method}-spike{spike_method}.h5')
 @schema
@@ -387,9 +390,9 @@ class InputResponse(dj.Computed, FilterMixin, TraceMixin):
                                           & key & '(um_z >= z_start) and (um_z < z_end)')
 
         # --- fetch all stimuli and classify into train/test/val
-        inputs, hashes, stim_keys, tiers, types, trial_idx = \
+        inputs, hashes, stim_keys, tiers, types, trial_idx, durations = \
             (data_rel & key).fetch('frames', 'condition_hash', dj.key,
-                                   'tier', 'stimulus_type', 'trial_idx',
+                                   'tier', 'stimulus_type', 'trial_idx', 'duration',
                                    order_by='condition_hash ASC, trial_idx ASC')
         train_idx = np.array([t == 'train' for t in tiers], dtype=bool)
         test_idx = np.array([t == 'test' for t in tiers], dtype=bool)
@@ -495,6 +498,7 @@ class InputResponse(dj.Computed, FilterMixin, TraceMixin):
                       val_idx=val_idx,
                       test_idx=test_idx,
                       condition_hashes=hashes.astype('S'),
+                      durations = durations.astype(np.float32),
                       trial_idx=trial_idx.astype(np.uint32),
                       neurons=neurons,
                       tiers=tiers.astype('S'),
@@ -505,8 +509,6 @@ class InputResponse(dj.Computed, FilterMixin, TraceMixin):
             retval['eye_position'] = eye_position
         return retval
 
-
-#
 
 class BehaviorMixin:
     def load_eye_traces(self, key):
@@ -711,6 +713,13 @@ class MovieMultiDataset(dj.Manual):
             ('16314-3-1-triple', dj.AndList([
                 dict(animal_id=16314, session=3, scan_idx=1, pipe_version=1, segmentation_method=3, spike_method=5),
                 'preproc_id in (0,1,2)'])),
+            ('16314-3-1', [
+                dict(animal_id=16314, session=3, scan_idx=1, preproc_id=0, pipe_version=1, segmentation_method=3,
+                     spike_method=5)]),
+            ('18142-platinum', [
+                dict(animal_id=18142, pipe_version=1, segmentation_method=3, spike_method=5)]),
+            ('8973-golden', dj.AndList(['animal_id=8973 and session=1 and scan_idx in (2,3,4,5,6,9,11,12)',
+                                        dict(pipe_version=1, segmentation_method=3, spike_method=5, preproc_id=0)]))
         ]
         for group_id, (descr, key) in enumerate(selection):
             entry = dict(group_id=group_id, description=descr)
@@ -741,9 +750,11 @@ class MovieMultiDataset(dj.Manual):
                       'responses']
             log.info('Data will be ({})'.format(','.join(data_names)))
 
-            h5filename = InputResponse().get_hdf5_filename(mkey)
-            log.info('Loading dataset ' + name + '-->' + h5filename)
-            ret[name] = MovieSet(h5filename, *data_names)
+            filename = InputResponse().get_filename(mkey)
+            log.info('Loading dataset ' + name + '-->' + filename)
+
+            ret[name] = MovieSet(filename, *data_names)
+
         if key_order is not None:
             log.info('Reordering datasets according to given key order')
             ret = OrderedDict([
@@ -807,6 +818,44 @@ class MovieSet(H5SequenceSet):
             behavior=np.ones((1, t, 1)) * mean('behavior')[None, None, :],
             responses=np.ones((1, t, 1)) * mean('responses')[None, None, :]
         )
+        return self.transform(self.data_point(*[d[dk] for dk in self.data_groups]), exclude=Subsequence)
+
+    def rf_noise_stim(self, m, t, stats_source='all'):
+        """
+        Generates a Gaussian white noise stimulus filtered with a 3x3 Gaussian filter
+        for the computation of receptive fields. The mean and variance of the Gaussian
+        noise are set to the mean and variance of the stimulus ensemble.
+
+        The behvavior, eye movement statistics, and responses are set to their respective means.
+        Args:
+            m: number of noise samples
+            t: length in time
+
+        Returns: tuple of input, behavior, eye, and response
+
+        """
+        N, c, _, w, h = self.img_shape
+        stat = lambda dk, what: self.statistics['{}/{}/{}'.format(dk, stats_source, what)].value
+        mu, s = stat('inputs', 'mean'), stat('inputs', 'std')
+        h_filt = np.float64([
+            [1 / 16, 1 / 8, 1 / 16],
+            [1 / 8, 1 / 4, 1 / 8],
+            [1 / 16, 1 / 8, 1 / 16]]
+        )
+        noise_input = np.stack([convolve2d(np.random.randn(w, h), h_filt, mode='same')
+                                for _ in range(m * t * c)]).reshape((m, c, t, w, h)) * s + mu
+
+        mean_beh = np.ones((m, t, 1)) * stat('behavior', 'mean')[None, None, :]
+        mean_eye = np.ones((m, t, 1)) * stat('eye_position', 'mean')[None, None, :]
+        mean_resp = np.ones((m, t, 1)) * stat('responses', 'mean')[None, None, :]
+
+        d = dict(
+            inputs=noise_input.astype(np.float32),
+            eye_position=mean_eye.astype(np.float32),
+            behavior=mean_beh.astype(np.float32),
+            responses=mean_resp.astype(np.float32)
+        )
+
         return self.transform(self.data_point(*[d[dk] for dk in self.data_groups]), exclude=Subsequence)
 
     def __getitem__(self, item):

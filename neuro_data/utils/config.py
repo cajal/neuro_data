@@ -4,7 +4,24 @@ from pprint import pformat
 import datajoint as dj
 from .data import key_hash, to_native
 from .. import logger as log
+import numpy as np
+import numpy.random as rng
+
 _INDENT = '      '
+
+from contextlib import contextmanager
+
+@contextmanager
+def fixed_seed(seed):
+    state = rng.get_state()
+    np.random.seed(seed)
+
+    try:
+        yield
+    finally:
+        np.random.set_state(state)
+
+
 class ConfigBase:
     _config_type = None
 
@@ -35,7 +52,7 @@ class ConfigBase:
 
                     if not key in rel().proj():
                         self.insert1(dict(key, **{self._config_type + '_description':rel.describe(key)}),
-                                     ignore_extra_fields=True)
+                                     ignore_extra_fields=True, skip_duplicates=True)
                         log.info('Inserting\n' + pformat(key, indent=20))
                         rel().insert1(key,ignore_extra_fields=True)
 

@@ -69,11 +69,6 @@ class H5ArraySet(Dataset):
         else:
             raise AttributeError('Item {} not found in {}'.format(item, self.__class__.__name__))
 
-    def __repr__(self):
-        return 'H5ArraySet m={}:\n\t({})'.format(len(self), ', '.join(self.data_keys)) \
-               + '\n\t[Transforms: ' + '->'.join([repr(tr) for tr in self.transforms]) + ']'
-
-
 
 class AttributeHandler:
     def __init__(self, name, h5_handle):
