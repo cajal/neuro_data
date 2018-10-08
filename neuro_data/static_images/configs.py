@@ -288,10 +288,11 @@ class DataConfig(ConfigBase, dj.Lookup):
                              [100]):
                 yield dict(zip(self.heading.dependent_attributes, p))
 
-        def load_data(self, key, tier=None, batch_size=1, key_order=None, stimulus_types=None):
+        def load_data(self, key, tier=None, batch_size=1, key_order=None, stimulus_types=None, Sampler=None):
             from .stats import Oracle
-            datasets, loaders = super().load_data(key, tier=tier, batch_size=batch_size,
-                                                  key_order=key_order, stimulus_types=stimulus_types)
+            datasets, loaders = super().load_data(
+                key, tier=tier, batch_size=batch_size,key_order=key_order, 
+                stimulus_types=stimulus_types, Sampler=Sampler)
             for rok, dataset in datasets.items():
                 member_key = (StaticMultiDataset.Member() & key & dict(name=rok)).fetch1(dj.key)
 
