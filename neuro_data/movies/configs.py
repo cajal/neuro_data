@@ -423,7 +423,7 @@ class DataConfig(ConfigBase, dj.Lookup):
                       Sampler=None, t_first=False, cuda=False):
             from .stats import BootstrapOracleTTest
             key['seq_len'] = seq_len
-            assert tier in ['train', 'validation', 'test']
+            assert tier in [None, 'train', 'validation', 'test']
             datasets, loaders = super().load_data(
                 key, tier=tier, batch_size=batch_size, Sampler=Sampler,
                 t_first=t_first, cuda=cuda)
