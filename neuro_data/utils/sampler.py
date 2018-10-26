@@ -41,7 +41,7 @@ class SubSubsetRandomSequentialSampler(Sampler):
         return (subsubset_indices[i] for i in range(len(subsubset_indices)))
 
     def __len__(self):
-        return len(self.subsubset_size)
+        return self.subsubset_size
 
 
 class BalancedSubsetSampler(Sampler):
