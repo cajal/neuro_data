@@ -268,7 +268,7 @@ class DataConfig(ConfigBase, dj.Lookup):
         -> master
         ---
         stats_source            : varchar(50)  # normalization source
-        stimulus_type           : varchar(512)  # type of stimulus
+        stimulus_type           : varchar(512) # type of stimulus
         exclude                 : varchar(512) # what inputs to exclude from normalization
         normalize               : bool         # whether to use a normalize or not
         train_seq_len           : smallint     # training sequence length in frames
@@ -382,6 +382,69 @@ class DataConfig(ConfigBase, dj.Lookup):
                 selection = (pearson >= low) & (pearson <= high)
                 log.info(
                     'Subsampling to {} neurons above {:.2f} and below {} oracle'.format(selection.sum(), low, high))
+                dataset.transforms.insert(
+                    -1, Subsample(np.where(selection)[0]))
+
+                assert np.all(dataset.neurons.unit_ids ==
+                              units[selection]), 'Units are inconsistent'
+            return datasets, loaders
+
+    class AreaLayerReliable(dj.Part, AreaLayerMixin):
+        definition = """
+        -> master
+        ---
+        stats_source            : varchar(50)  # normalization source
+        stimulus_type           : varchar(512) # type of stimulus
+        exclude                 : varchar(512) # what inputs to exclude from normalization
+        normalize               : bool         # whether to use a normalize or not
+        -> experiment.Layer
+        -> anatomy.Area
+        # 10^(p_val_power) is p-val threshold
+        p_val_power             : tinyint
+        """
+        _exclude_from_normalization = ['inputs', 'responses']
+
+        def describe(self, key):
+            return "Like AreaLayer but only neurons that have significantly different (p-val < {:.0E}) response-oracle correlations to the same stimuli vs different stimuli".format(
+                np.power(10, float(key['p_val_power'])))
+
+        @property
+        def content(self):
+            for p in product(['all'],
+                             ['stimulus.Clip', '~stimulus.Clip'],
+                             ['inputs,responses'],
+                             [True],
+                             ['L2/3'],
+                             ['V1'],
+                             [-3]):
+                yield dict(zip(self.heading.dependent_attributes, p))
+
+        def load_data(self, key, tier=None, batch_size=1, seq_len=None,
+                      Sampler=None, t_first=False, cuda=False):
+            from .stats import BootstrapOracleTTest
+            key['seq_len'] = seq_len
+            assert tier in [None, 'train', 'validation', 'test']
+            datasets, loaders = super().load_data(
+                key, tier=tier, batch_size=batch_size, Sampler=Sampler,
+                t_first=t_first, cuda=cuda)
+
+            for rok, dataset in datasets.items():
+                member_key = (MovieMultiDataset.Member() & key &
+                              dict(name=rok)).fetch1(dj.key)
+                all_units, all_pvals = (
+                    BootstrapOracleTTest.UnitPValue & member_key).fetch(
+                        'unit_id', 'unit_p_value')
+                assert len(all_pvals) > 0, \
+                    'You forgot to populate BootstrapOracleTTest for group_id={}'.format(
+                    member_key['group_id'])
+                units_mask = np.isin(all_units, dataset.neurons.unit_ids)
+                units, pvals = all_units[units_mask], all_pvals[units_mask]
+                assert np.all(
+                    units == dataset.neurons.unit_ids), 'order of neurons has changed'
+                pval_thresh = np.power(10, float(key['p_val_power']))
+                selection = pvals < pval_thresh
+                log.info('Subsampling to {} neurons with BootstrapOracleTTest p-val < {:.0E}'.format(
+                    selection.sum(), pval_thresh))
                 dataset.transforms.insert(
                     -1, Subsample(np.where(selection)[0]))
 
