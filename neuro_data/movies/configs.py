@@ -311,6 +311,7 @@ class DataConfig(ConfigBase, dj.Lookup):
                         if gap != 0:
                             log.warning('{gap}s gap between requested stimulus length and actual stimulus length.'.format(gap=gap))
                         log.info('Using {} trials'.format((total_duration <= key['seconds']).sum()))
+                        log.info('Using {} trials'.format((total_duration <= key['seconds'])).sum())
                         log.info('Replacing ' + loader.sampler.__class__.__name__ + ' with RandomSubsetSampler')
                         Loader = loader.__class__
                         loaders[rok] = Loader(loader.dataset, sampler=SubsetRandomSampler(idx[selection]))
