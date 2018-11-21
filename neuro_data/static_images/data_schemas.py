@@ -3,7 +3,6 @@ from functools import partial
 from itertools import count, compress
 from pprint import pformat
 
-import cv2
 import datajoint as dj
 import numpy as np
 import pandas as pd
@@ -264,6 +263,8 @@ class Frame(dj.Computed):
             raise KeyError('Cannot find matching stimulus relation')
 
     def make(self, key):
+        import cv2
+
         log.info(80 * '-')
         log.info('Processing key ' + pformat(dict(key)))
         imgsize = (Preprocessing() & key).fetch1('col', 'row')  # target size of movie frames
@@ -764,6 +765,9 @@ class StaticMultiDataset(dj.Manual):
             ('16312-3-20', dict(animal_id=16312, session=3, scan_idx=20, preproc_id=0)),
             ('11521-7-1-scaled', dict(animal_id=11521, session=7, scan_idx=1, preproc_id=2)),
             ('11521-7-2-scaled', dict(animal_id=11521, session=7, scan_idx=2, preproc_id=2)),
+            ('16312-3-20', dict(animal_id=16312, session=3, scan_idx=20, preproc_id=0)),
+            ('16157-5', [dict(animal_id=16157, session=5, scan_idx=5, preproc_id=0),
+                         dict(animal_id=16157, session=5, scan_idx=6, preproc_id=0)]),
         ]
         for group_id, (descr, key) in enumerate(selection):
             entry = dict(group_id=group_id, description=descr)
@@ -794,7 +798,7 @@ class StaticMultiDataset(dj.Manual):
                       'responses']
             log.info('Data will be ({})'.format(','.join(data_names)))
 
-            h5filename = InputResponse().get_hdf5_filename(mkey)
+            h5filename = InputResponse().get_filename(mkey)
             log.info('Loading dataset {} --> {}'.format(name, h5filename))
             ret[name] = StaticImageSet(h5filename, *data_names)
         if key_order is not None:

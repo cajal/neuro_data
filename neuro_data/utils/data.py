@@ -1,13 +1,14 @@
 import hashlib
+import os.path as op
 import pathlib
+import pickle
 from shutil import copyfile
 from warnings import warn
 
-import pickle
-import os.path as op
-from tqdm import tqdm
-from .. import logger as log
 import datajoint as dj
+from tqdm import tqdm
+
+from .. import logger as log
 
 fuse = dj.create_virtual_module('fuse', 'pipeline_fuse')
 stimulus = dj.create_virtual_module('stimulus', 'pipeline_stimulus')
@@ -27,7 +28,7 @@ from scipy.interpolate import InterpolatedUnivariateSpline, interp1d
 import numpy as np
 import h5py
 import os
-from collections import OrderedDict, defaultdict
+from collections import OrderedDict
 
 
 class NaNSpline(InterpolatedUnivariateSpline):
@@ -56,6 +57,7 @@ class NaNSpline(InterpolatedUnivariateSpline):
         ret[idx] = np.nan
         ret[~idx] = super().__call__(x[~idx], **kwargs)
         return ret
+
 
 class SplineCurve:
     def __init__(self, t, s, **kwargs):
@@ -204,6 +206,69 @@ class cached_data:
         return cls
 
 
+class dircached:
+    def __init__(self, cache_dir, data_keys, fmt=None):
+        self.cache_dir = cache_dir
+        self.data_keys = data_keys
+        pathlib.Path(cache_dir).mkdir(parents=True, exist_ok=True)
+        self.fmt = fmt
+
+    def __call__(self, cls):
+        if not hasattr(cls, 'compute_data'):
+            raise AttributeError(
+                'Class {name} needs a method compute_data(key, **kwargs) to be decorated with cached_data'.format(
+                    name=cls.__name__))
+
+        def _get_dir_name(oself, key=None, **kwargs):
+            if key is None:
+                key = {}
+
+            if not (oself & key):
+                raise ValueError('Dataset not found!')
+            if len(oself & key) > 1:
+                raise ValueError('Can only return one dataset!')
+
+            k = (oself & key).fetch1("KEY")
+
+            if self.fmt is None:
+                hash = key_hash(dict(k, _class_name=cls.__name__, **kwargs))
+                dirname = '{hash}'.format(hash=hash)
+            else:
+                dirname = self.fmt.format(**k)
+
+            return op.join(self.cache_dir, dirname)
+
+        # def fetch1_data(oself, key=None, **kwargs):
+        #     dir_name = oself._get_dir_name(key, **kwargs)
+        #
+        #     if not os.path.isfile(os.join(dir_name, 'meta.npz')):
+        #         pathlib.Path(dir_name).mkdir(parents=True, exist_ok=True)
+        #         print('Computing data and saving to', dir_name, flush=True)
+        #         data = oself.compute_data(key, **kwargs)
+        #         save_to_cache_dir(data, dir_name, self.data_keys)
+        #
+        #     # --- copy to tmp dir
+        #     print('Loading data from', dir_name, flush=True)
+        #     data = load_dict_from_hdf5(dir_name)
+        #
+        #     return data
+
+        def get_cache_dir(oself, key=None, **kwargs):
+            dir_name = oself._get_dir_name(key, **kwargs)
+            if not os.path.isfile(os.path.join(dir_name, 'meta.npz')):
+                pathlib.Path(dir_name).mkdir(parents=True, exist_ok=True)
+                print('Computing data and saving to', dir_name, flush=True)
+                data = oself.compute_data(key, **kwargs)
+                save_to_cache_dir(data, dir_name, self.data_keys)
+
+            return dir_name
+
+        cls._get_dir_name = _get_dir_name
+        cls.get_filename = get_cache_dir
+
+        return cls
+
+
 class h5cached:
     def __init__(self, cache_dir, mode='array', transfer_to_tmp=True, file_format=None):
         self.cache_dir = cache_dir
@@ -268,7 +333,7 @@ class h5cached:
 
             return data
 
-        def get_hdf5_filename(oself, key=None, **kwargs):
+        def get_filename(oself, key=None, **kwargs):
             filename = oself._get_filename(key, **kwargs)
             if not os.path.isfile(filename):
                 print('Computing data and saving to', filename, flush=True)
@@ -278,7 +343,7 @@ class h5cached:
 
         cls.fetch1_data = fetch1_data
         cls._get_filename = _get_filename
-        cls.get_hdf5_filename = get_hdf5_filename
+        cls.get_filename = get_filename
 
         return cls
 
@@ -361,3 +426,14 @@ def to_native(key):
                 key[k] = v.item()
     return key
 
+
+def save_to_cache_dir(dat, dir, data_keys):
+    data_keys = [d for d in data_keys if d in dat]
+    meta_keys = [d for d in dat.keys() if d not in data_keys]
+    n = len(dat[data_keys[0]])
+    print('Saving {} elements to {}'.format(n, dir))
+    for i in tqdm(range(n), total=n, desc='Saving npz files: '):
+        np.savez(os.path.join(dir, '{}'.format(i)), **{dk: dat[dk][i] for dk in data_keys})
+    meta = {dk: dat[dk] for dk in meta_keys}
+    meta['_data_keys'] = data_keys
+    np.savez(os.path.join(dir, 'meta'), **meta)

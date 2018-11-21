@@ -41,7 +41,7 @@ class H5ArraySet(Dataset):
 
     def __repr__(self):
         return '\n'.join(['Tensor {}: {} '.format(key, self._fid[key].shape)
-                          for key in self.data_keys] + ['Transforms: ' + repr(self.transform)])
+                          for key in self.data_keys] + ['Transforms: ' + repr(self.transforms)])
 
     def transform(self, x, exclude=None):
         for tr in self.transforms:
@@ -68,11 +68,6 @@ class H5ArraySet(Dataset):
             return item
         else:
             raise AttributeError('Item {} not found in {}'.format(item, self.__class__.__name__))
-
-    def __repr__(self):
-        return 'H5ArraySet m={}:\n\t({})'.format(len(self), ', '.join(self.data_keys)) \
-               + '\n\t[Transforms: ' + '->'.join([repr(tr) for tr in self.transforms]) + ']'
-
 
 
 class AttributeHandler:

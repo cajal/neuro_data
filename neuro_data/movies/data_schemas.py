@@ -1,21 +1,21 @@
+import io
 from collections import OrderedDict
 from functools import partial
 from itertools import count
 from pprint import pformat
 
+import cv2
+import imageio
+import numpy as np
 from attorch.dataset import H5SequenceSet
+from scipy.signal import convolve2d
+from tqdm import tqdm
 
 from neuro_data.movies.transforms import Subsequence
 from .mixins import TraceMixin
-from .. import logger as log
-import imageio
-import io
-import numpy as np
-import cv2
 from .schema_bridge import *
-from tqdm import tqdm
-from scipy.signal import convolve2d
-from ..utils.data import SplineMovie, FilterMixin, SplineCurve, h5cached, NaNSpline, fill_nans
+from .. import logger as log
+from ..utils.data import SplineMovie, FilterMixin, SplineCurve, NaNSpline, fill_nans, h5cached
 
 dj.config['external-data'] = dict(
     protocol='file',
@@ -32,7 +32,8 @@ UNIQUE_CLIP = {
     'stimulus.Clip': ('movie_name', 'clip_number', 'cut_after', 'skip_time'),
     'stimulus.Monet': ('rng_seed',),
     'stimulus.Monet2': ('rng_seed',),
-    'stimulus.Trippy': ('rng_seed',)
+    'stimulus.Trippy': ('rng_seed',),
+    'stimulus.Matisse2': ('condition_hash',)
 }
 
 schema = dj.schema('neurodata_movies', locals())
@@ -47,6 +48,11 @@ MOVIESCANS = [  # '(animal_id=16278 and session=11 and scan_idx between 5 and 9)
     platinum.CuratedScan() & dict(animal_id=18142, scan_purpose='trainable_platinum_classic', score=4),
     platinum.CuratedScan() & dict(animal_id=17797, scan_purpose='trainable_platinum_classic') & 'score > 2',
     'animal_id=16314 and session=3 and scan_idx=1',
+    experiment.Scan() & (stimulus.Trial & stimulus.Condition() & stimulus.Monet()) & dict(animal_id=8973),
+    'animal_id=18979 and session=2 and scan_idx=7',
+    'animal_id=18799 and session=3 and scan_idx=14',
+    'animal_id=18799 and session=4 and scan_idx=18',
+    'animal_id=18979 and session=2 and scan_idx=5'
 ]
 
 
@@ -168,7 +174,7 @@ class ConditionTier(dj.Computed):
         log.info('Processing ' + repr(key))
         conditions = dj.U('stimulus_type').aggr(stimulus.Condition() & (stimulus.Trial() & key),
                                                 count='count(*)') \
-                     & 'stimulus_type in ("stimulus.Clip","stimulus.Monet", "stimulus.Monet2", "stimulus.Trippy")'
+                     & 'stimulus_type in ("stimulus.Clip","stimulus.Monet", "stimulus.Monet2", "stimulus.Trippy", "stimulus.Matisse2")'
         for cond in conditions.fetch(as_dict=True):
             log.info('Checking condition {stimulus_type} (n={count})'.format(**cond))
             clips = (stimulus.Condition() * MovieScan() & key & cond).aggr(stimulus.Trial(), repeats="count(*)",
@@ -194,9 +200,10 @@ class MovieClips(dj.Computed, FilterMixin):
     -> stimulus.Condition
     -> Preprocessing
     ---
-    fps0                 : float      # original framerate
+    fps0                 : float           # original framerate
     frames               : external-data   # input movie downsampled
     sample_times         : external-data   # sample times for the new frames
+    duration             : float           # duration in seconds
     """
 
     def get_frame_rate(self, key):
@@ -279,7 +286,6 @@ class MovieClips(dj.Computed, FilterMixin):
         self.insert1(dict(key, frames=movie.transpose([2, 0, 1]), sample_times=samps, fps0=frame_rate))
 
 
-# @h5cached('/data/all_movie_data/', mode='groups')
 @h5cached('/external/cache/', mode='groups', transfer_to_tmp=False,
           file_format='movies{animal_id}-{session}-{scan_idx}-pre{preproc_id}-pipe{pipe_version}-seg{segmentation_method}-spike{spike_method}.h5')
 @schema
@@ -350,7 +356,6 @@ class InputResponse(dj.Computed, FilterMixin, TraceMixin):
         if not np.all(nodrop & valid):
             log.warning('Dropping {} trials with dropped frames or flips outside the recording interval'.format(
                 (~(nodrop & valid)).sum()))
-
         for trial_key, flips, samps, take in tqdm(zip(trial_keys, flip_times, sample_times, nodrop & valid),
                                                   total=len(trial_keys), desc='Trial '):
             if take:
@@ -387,9 +392,9 @@ class InputResponse(dj.Computed, FilterMixin, TraceMixin):
                                           & key & '(um_z >= z_start) and (um_z < z_end)')
 
         # --- fetch all stimuli and classify into train/test/val
-        inputs, hashes, stim_keys, tiers, types, trial_idx = \
+        inputs, hashes, stim_keys, tiers, types, trial_idx, durations = \
             (data_rel & key).fetch('frames', 'condition_hash', dj.key,
-                                   'tier', 'stimulus_type', 'trial_idx',
+                                   'tier', 'stimulus_type', 'trial_idx', 'duration',
                                    order_by='condition_hash ASC, trial_idx ASC')
         train_idx = np.array([t == 'train' for t in tiers], dtype=bool)
         test_idx = np.array([t == 'test' for t in tiers], dtype=bool)
@@ -495,6 +500,7 @@ class InputResponse(dj.Computed, FilterMixin, TraceMixin):
                       val_idx=val_idx,
                       test_idx=test_idx,
                       condition_hashes=hashes.astype('S'),
+                      durations = durations.astype(np.float32),
                       trial_idx=trial_idx.astype(np.uint32),
                       neurons=neurons,
                       tiers=tiers.astype('S'),
@@ -505,8 +511,6 @@ class InputResponse(dj.Computed, FilterMixin, TraceMixin):
             retval['eye_position'] = eye_position
         return retval
 
-
-#
 
 class BehaviorMixin:
     def load_eye_traces(self, key):
@@ -606,6 +610,7 @@ class Eye(dj.Computed, FilterMixin, BehaviorMixin):
                                   dpupil=dpupil,
                                   center=center),
                              ignore_extra_fields=True)
+
 
 
 @schema
@@ -714,6 +719,12 @@ class MovieMultiDataset(dj.Manual):
             ('16314-3-1', [
                 dict(animal_id=16314, session=3, scan_idx=1, preproc_id=0, pipe_version=1, segmentation_method=3,
                      spike_method=5)]),
+            ('18142-platinum', [
+                dict(animal_id=18142, pipe_version=1, segmentation_method=3, spike_method=5)]),
+            ('8973-golden', dj.AndList(['animal_id=8973 and session=1 and scan_idx in (2,3,4,5,6,9,11,12)',
+                                        dict(pipe_version=1, segmentation_method=3, spike_method=5, preproc_id=0)])),
+            ('18979-2-7-jiakun',  dict(animal_id=18979, session=2, scan_idx=7, pipe_version=1, segmentation_method=3, spike_method=5)),
+            ('18799-3-14-jiakun',  dict(animal_id=18799, session=3, scan_idx=14, pipe_version=1, segmentation_method=3, spike_method=5)),
         ]
         for group_id, (descr, key) in enumerate(selection):
             entry = dict(group_id=group_id, description=descr)
@@ -744,9 +755,11 @@ class MovieMultiDataset(dj.Manual):
                       'responses']
             log.info('Data will be ({})'.format(','.join(data_names)))
 
-            h5filename = InputResponse().get_hdf5_filename(mkey)
-            log.info('Loading dataset ' + name + '-->' + h5filename)
-            ret[name] = MovieSet(h5filename, *data_names)
+            filename = InputResponse().get_filename(mkey)
+            log.info('Loading dataset ' + name + '-->' + filename)
+
+            ret[name] = MovieSet(filename, *data_names)
+
         if key_order is not None:
             log.info('Reordering datasets according to given key order')
             ret = OrderedDict([
