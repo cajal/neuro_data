@@ -440,7 +440,6 @@ class DataConfig(ConfigBase, dj.Lookup):
         -> anatomy.Area
         p_val_power             : tinyint
         """
-        _exclude_from_normalization = ['inputs', 'responses']
 
         def describe(self, key):
             return "Like AreaLayer but only neurons that have significantly different (p-val < {:.0E}) response-oracle correlations to the same stimuli vs different stimuli".format(
@@ -450,7 +449,7 @@ class DataConfig(ConfigBase, dj.Lookup):
         def content(self):
             for p in product(['all'],
                              ['stimulus.Frame', '~stimulus.Frame'],
-                             ['inputs,responses'],
+                             ['images,responses'],
                              [True],
                              ['L2/3'],
                              ['V1'],
