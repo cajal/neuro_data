@@ -41,7 +41,7 @@ class H5ArraySet(Dataset):
 
     def __repr__(self):
         return '\n'.join(['Tensor {}: {} '.format(key, self._fid[key].shape)
-                          for key in self.data_keys] + ['Transforms: ' + repr(self.transform)])
+                          for key in self.data_keys] + ['Transforms: ' + repr(self.transforms)])
 
     def transform(self, x, exclude=None):
         for tr in self.transforms:
