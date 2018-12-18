@@ -625,6 +625,7 @@ class Eye(dj.Computed, FilterMixin, BehaviorMixin):
                              ignore_extra_fields=True)
 
 
+
 @schema
 class Treadmill(dj.Computed, FilterMixin, BehaviorMixin):
     definition = """

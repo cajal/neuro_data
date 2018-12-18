@@ -25,10 +25,12 @@ class StimulusTypeMixin:
     # TODO: add normalize option
     def add_transforms(self, key, datasets, exclude=None):
         if exclude is not None:
-            log.info('Excluding "{}" from normalization'.format('", "'.join(exclude)))
+            log.info('Excluding "{}" from normalization'.format(
+                '", "'.join(exclude)))
         for k, dataset in datasets.items():
             transforms = []
-            transforms.extend([Normalizer(dataset, stats_source=key['stats_source'], exclude=exclude), ToTensor()])
+            transforms.extend([Normalizer(
+                dataset, stats_source=key['stats_source'], exclude=exclude), ToTensor()])
             dataset.transforms = transforms
 
         return datasets
@@ -59,8 +61,10 @@ class StimulusTypeMixin:
         return Sampler
 
     def log_loader(self, loader):
-        log.info('Loader sampler is {}'.format(loader.sampler.__class__.__name__))
-        log.info('Number of samples in the loader will be {}'.format(len(loader.sampler)))
+        log.info('Loader sampler is {}'.format(
+            loader.sampler.__class__.__name__))
+        log.info('Number of samples in the loader will be {}'.format(
+            len(loader.sampler)))
         log.info(
             'Number of batches in the loader will be {}'.format(int(np.ceil(len(loader.sampler) / loader.batch_size))))
 
@@ -69,7 +73,8 @@ class StimulusTypeMixin:
             Sampler = self.get_sampler_class(tier)
 
         if not isinstance(stimulus_types, list):
-            log.info('Using {} as stimulus type for all datasets'.format(stimulus_types))
+            log.info('Using {} as stimulus type for all datasets'.format(
+                stimulus_types))
             stimulus_types = len(datasets) * [stimulus_types]
 
         log.info('Stimulus sources: "{}"'.format('","'.join(stimulus_types)))
@@ -79,35 +84,42 @@ class StimulusTypeMixin:
                        for dataset, stimulus_type in zip(datasets.values(), stimulus_types)]
 
         for (k, dataset), stimulus_type, constraint in zip(datasets.items(), stimulus_types, constraints):
-            log.info('Selecting trials from {} and tier={} for dataset {}'.format(stimulus_type, tier, k))
+            log.info('Selecting trials from {} and tier={} for dataset {}'.format(
+                stimulus_type, tier, k))
             ix = np.where(constraint)[0]
             log.info('Found {} active trials'.format(constraint.sum()))
             if Sampler is BalancedSubsetSampler:
                 sampler = Sampler(ix, dataset.types, mode='longest')
             else:
                 sampler = Sampler(ix)
-            loaders[k] = DataLoader(dataset, sampler=sampler, batch_size=batch_size)
+            loaders[k] = DataLoader(
+                dataset, sampler=sampler, batch_size=batch_size)
             self.log_loader(loaders[k])
         return loaders
 
     def load_data(self, key, tier=None, batch_size=1, key_order=None,
                   exclude_from_normalization=None, stimulus_types=None, Sampler=None):
-        log.info('Loading {} dataset with tier={}'.format(self._stimulus_type, tier))
+        log.info('Loading {} dataset with tier={}'.format(
+            self._stimulus_type, tier))
         datasets = StaticMultiDataset().fetch_data(key, key_order=key_order)
         for k, dat in datasets.items():
             if 'stats_source' in key:
-                log.info('Adding stats_source "{stats_source}" to dataset'.format(**key))
+                log.info(
+                    'Adding stats_source "{stats_source}" to dataset'.format(**key))
                 dat.stats_source = key['stats_source']
 
         log.info('Using statistics source ' + key['stats_source'])
-        datasets = self.add_transforms(key, datasets, exclude=exclude_from_normalization)
-        loaders = self.get_loaders(datasets, tier, batch_size, stimulus_types, Sampler)
+        datasets = self.add_transforms(
+            key, datasets, exclude=exclude_from_normalization)
+        loaders = self.get_loaders(
+            datasets, tier, batch_size, stimulus_types, Sampler)
         return datasets, loaders
 
 
 class AreaLayerRawMixin(StimulusTypeMixin):
     def load_data(self, key, tier=None, batch_size=1, key_order=None, stimulus_types=None, Sampler=None, **kwargs):
-        log.info('Ignoring input arguments: "' + '", "'.join(kwargs.keys()) + '"' + 'when creating datasets')
+        log.info('Ignoring input arguments: "' +
+                 '", "'.join(kwargs.keys()) + '"' + 'when creating datasets')
         exclude = key.pop('exclude').split(',')
         stimulus_types = key.pop('stimulus_type')
         datasets, loaders = super().load_data(key, tier, batch_size, key_order,
@@ -115,11 +127,13 @@ class AreaLayerRawMixin(StimulusTypeMixin):
                                               stimulus_types=stimulus_types,
                                               Sampler=Sampler)
 
-        log.info('Subsampling to layer "{layer}" and area "{brain_area}"'.format(**key))
+        log.info(
+            'Subsampling to layer "{layer}" and area "{brain_area}"'.format(**key))
         for readout_key, dataset in datasets.items():
             layers = dataset.neurons.layer
             areas = dataset.neurons.area
-            idx = np.where((layers == key['layer']) & (areas == key['brain_area']))[0]
+            idx = np.where((layers == key['layer']) & (
+                areas == key['brain_area']))[0]
             if len(idx) == 0:
                 log.warning('Empty set of neurons. Deleting this key')
                 del datasets[readout_key]
@@ -127,6 +141,7 @@ class AreaLayerRawMixin(StimulusTypeMixin):
             else:
                 dataset.transforms.insert(-1, Subsample(idx))
         return datasets, loaders
+
 
 class AreaLayerNoiseMixin(AreaLayerRawMixin):
     def load_data(self, key, balanced=False, **kwargs):
@@ -138,13 +153,17 @@ class AreaLayerNoiseMixin(AreaLayerRawMixin):
                 np.random.seed(key['split_seed'])
                 train_hashes, val_hashes, test_hashes = [], [], []
                 for noise_type in ['stimulus.MonetFrame', 'stimulus.TrippyFrame']:
-                    unique_condition_hashes = np.unique(dataset.info.condition_hash[dataset.types == noise_type])
-                    assert unique_condition_hashes.size > 1, 'Dataset does not contain sufficient {}'.format(noise_type)
+                    unique_condition_hashes = np.unique(
+                        dataset.info.condition_hash[dataset.types == noise_type])
+                    assert unique_condition_hashes.size > 1, 'Dataset does not contain sufficient {}'.format(
+                        noise_type)
                     num_hashes = unique_condition_hashes.size
-                    num_train_hashes = np.round(num_hashes * key['train_fraction']).astype(np.int)
-                    num_val_hashes = np.round(num_hashes * key['val_fraction']).astype(np.int)
+                    num_train_hashes = np.round(
+                        num_hashes * key['train_fraction']).astype(np.int)
+                    num_val_hashes = np.round(
+                        num_hashes * key['val_fraction']).astype(np.int)
                     train_hashes.append(np.random.choice(
-                        unique_condition_hashes, num_train_hashes, replace=False)) 
+                        unique_condition_hashes, num_train_hashes, replace=False))
                     val_hashes.append(np.random.choice(
                         unique_condition_hashes[~np.isin(unique_condition_hashes, train_hashes)], num_val_hashes, replace=False))
                     test_hashes.append(unique_condition_hashes[
@@ -154,17 +173,21 @@ class AreaLayerNoiseMixin(AreaLayerRawMixin):
                     validation=np.concatenate(val_hashes),
                     test=np.concatenate(test_hashes))
                 if tier == 'test':
-                    tier_bool = np.isin(dataset.info.condition_hash, cond_hashes[tier])
+                    tier_bool = np.isin(
+                        dataset.info.condition_hash, cond_hashes[tier])
                 else:
                     tier_bool = np.logical_or(
-                        np.isin(dataset.info.condition_hash, cond_hashes[tier]),
+                        np.isin(dataset.info.condition_hash,
+                                cond_hashes[tier]),
                         dataset.tiers == tier)
-                if not balanced or tier !='train':
+                if not balanced or tier != 'train':
                     loaders[k].sampler.indices = np.flatnonzero(tier_bool)
                 else:
-                    loaders[k].sampler.configure_sampler(np.flatnonzero(tier_bool), dataset.types, mode='longest')
+                    loaders[k].sampler.configure_sampler(
+                        np.flatnonzero(tier_bool), dataset.types, mode='longest')
                 self.log_loader(loaders[k])
         return datasets, loaders
+
 
 @schema
 class DataConfig(ConfigBase, dj.Lookup):
@@ -188,8 +211,10 @@ class DataConfig(ConfigBase, dj.Lookup):
                 elif len(types) == 2 and types[0] in ('stimulus.MonetFrame',  'stimulus.TrippyFrame'):
                     condition_hashes = datasets[readout_key].condition_hashes
                 else:
-                    raise ValueError('Do not recognize types={}'.format(*types))
-                log.info('Replacing ' + loader.sampler.__class__.__name__ + ' with RepeatsBatchSampler')
+                    raise ValueError(
+                        'Do not recognize types={}'.format(*types))
+                log.info('Replacing ' + loader.sampler.__class__.__name__ +
+                         ' with RepeatsBatchSampler')
                 Loader = loader.__class__
                 loaders[readout_key] = Loader(loader.dataset,
                                               batch_sampler=RepeatsBatchSampler(condition_hashes, subset_index=ix))
@@ -203,8 +228,8 @@ class DataConfig(ConfigBase, dj.Lookup):
                         removed.append(tr.__class__.__name__)
                 datasets[readout_key].transforms = keep
                 if len(removed) > 0:
-                    log.warning('Removed the following transforms: "{}"'.format('", "'.join(removed)))
-
+                    log.warning('Removed the following transforms: "{}"'.format(
+                        '", "'.join(removed)))
 
         log.info('Setting cuda={}'.format(cuda))
         for dat in datasets.values():
@@ -261,14 +286,20 @@ class DataConfig(ConfigBase, dj.Lookup):
 
         @property
         def content(self):
+            oracle_source = list((DataConfig.AreaLayer() &
+                                  [dict(brain_area='V1', layer='L2/3',
+                                        normalize=True, stats_source='all',
+                                        stimulus_type='~stimulus.Frame',
+                                        exclude='images,responses'),
+                                   dict(brain_area='V1', layer='L2/3',
+                                        normalize=True, stats_source='all',
+                                        stimulus_type='stimulus.Frame',
+                                        exclude='images,responses')]).fetch('data_hash'))
             for p in product(['all'],
                              ['stimulus.Frame', '~stimulus.Frame'],
                              ['images,responses'],
                              [True],
-                             list((DataConfig.AreaLayer() & dict(brain_area='V1', layer='L2/3',
-                                                                 normalize=True, stats_source='all',
-                                                                 stimulus_type='~stimulus.Frame',
-                                                                 exclude='images,responses')).fetch('data_hash')),
+                             oracle_source,
                              ['L2/3'],
                              ['V1'],
                              [25],
@@ -278,38 +309,53 @@ class DataConfig(ConfigBase, dj.Lookup):
                              ['stimulus.Frame', '~stimulus.Frame'],
                              ['images,responses'],
                              [True],
-                             list((DataConfig.AreaLayer() & dict(brain_area='V1', layer='L2/3',
-                                                                 normalize=True, stats_source='all',
-                                                                 stimulus_type='~stimulus.Frame',
-                                                                 exclude='images,responses')).fetch('data_hash')),
+                             oracle_source,
                              ['L2/3'],
                              ['V1'],
                              [75],
+                             [100]):
+                yield dict(zip(self.heading.dependent_attributes, p))
+            for p in product(['all'],
+                             ['stimulus.Frame', '~stimulus.Frame'],
+                             ['images,responses'],
+                             [True],
+                             oracle_source,
+                             ['L2/3'],
+                             ['V1'],
+                             [0],
                              [100]):
                 yield dict(zip(self.heading.dependent_attributes, p))
 
         def load_data(self, key, tier=None, batch_size=1, key_order=None, stimulus_types=None, Sampler=None):
             from .stats import Oracle
             datasets, loaders = super().load_data(
-                key, tier=tier, batch_size=batch_size,key_order=key_order, 
+                key, tier=tier, batch_size=batch_size, key_order=key_order,
                 stimulus_types=stimulus_types, Sampler=Sampler)
             for rok, dataset in datasets.items():
-                member_key = (StaticMultiDataset.Member() & key & dict(name=rok)).fetch1(dj.key)
+                member_key = (StaticMultiDataset.Member() & key &
+                              dict(name=rok)).fetch1(dj.key)
 
                 okey = dict(key, **member_key)
                 okey['data_hash'] = okey.pop('oracle_source')
-                units, pearson = (Oracle.UnitScores() & okey).fetch('unit_id', 'pearson')
-                assert len(pearson) > 0, 'You forgot to populate oracle for data_hash="{}"'.format(key['oracle_source'])
-                assert len(units) == len(dataset.neurons.unit_ids), 'Number of neurons has changed'
-                assert np.all(units == dataset.neurons.unit_ids), 'order of neurons has changed'
+                units, pearson = (Oracle.UnitScores() & okey).fetch(
+                    'unit_id', 'pearson')
+                assert len(pearson) > 0, 'You forgot to populate oracle for data_hash="{}"'.format(
+                    key['oracle_source'])
+                assert len(units) == len(
+                    dataset.neurons.unit_ids), 'Number of neurons has changed'
+                assert np.all(
+                    units == dataset.neurons.unit_ids), 'order of neurons has changed'
 
-                low, high = np.percentile(pearson, [key['percent_low'], key['percent_high']])
+                low, high = np.percentile(
+                    pearson, [key['percent_low'], key['percent_high']])
                 selection = (pearson >= low) & (pearson <= high)
                 log.info(
                     'Subsampling to {} neurons above {:.2f} and below {} oracle'.format(selection.sum(), low, high))
-                dataset.transforms.insert(-1, Subsample(np.where(selection)[0]))
+                dataset.transforms.insert(-1,
+                                          Subsample(np.where(selection)[0]))
 
-                assert np.all(dataset.neurons.unit_ids == units[selection]), 'Units are inconsistent'
+                assert np.all(dataset.neurons.unit_ids ==
+                              units[selection]), 'Units are inconsistent'
             return datasets, loaders
 
     class AreaLayerNoise(dj.Part, AreaLayerNoiseMixin):
@@ -346,7 +392,7 @@ class DataConfig(ConfigBase, dj.Lookup):
 
         def load_data(self, key, **kwargs):
             return super().load_data(key, balanced=False, **kwargs)
-            
+
     class AreaLayerNoiseBalanced(dj.Part, AreaLayerNoiseMixin):
         definition = """
         -> master
