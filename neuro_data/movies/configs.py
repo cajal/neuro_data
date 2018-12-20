@@ -285,7 +285,8 @@ class DataConfig(ConfigBase, dj.Lookup):
         def content(self):
             for p in product(['all'],
                              ['stimulus.Clip', '~stimulus.Clip',
-                                 'stimulus.Clip(unreal)', 'stimulus.Clip(~unreal)'],
+                                 'stimulus.Clip(unreal)', 'stimulus.Clip(~unreal)',
+                                 'stimulus.Clip|~stimulus.Clip'],
                              ['inputs,responses'],
                              [True],
                              [30 * 5],

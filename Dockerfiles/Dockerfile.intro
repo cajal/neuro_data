@@ -1,0 +1,22 @@
+FROM eywalker/pytorch-jupyter:v0.4.0-cuda9.1
+
+WORKDIR /src
+
+RUN apt-get -y update && apt-get  -y install ffmpeg libhdf5-10 fish
+RUN pip3 install imageio ffmpy h5py opencv-python statsmodels
+
+RUN git clone https://github.com/atlab/attorch.git --branch pytorch0.4.0 && \
+    pip install -e attorch/
+
+ADD . /src/neuro_data
+RUN pip install -e /src/neuro_data
+
+WORKDIR /notebooks
+
+RUN mkdir -p /scripts
+ADD ./jupyter/run_jupyter.sh /scripts/
+ADD ./jupyter/jupyter_notebook_config.py /root/.jupyter/
+RUN chmod -R a+x /scripts
+ENTRYPOINT ["/scripts/run_jupyter.sh"]
+
+WORKDIR /notebooks

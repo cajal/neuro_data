@@ -52,7 +52,12 @@ MOVIESCANS = [  # '(animal_id=16278 and session=11 and scan_idx between 5 and 9)
     'animal_id=18979 and session=2 and scan_idx=7',
     'animal_id=18799 and session=3 and scan_idx=14',
     'animal_id=18799 and session=4 and scan_idx=18',
-    'animal_id=18979 and session=2 and scan_idx=5'
+    'animal_id=18979 and session=2 and scan_idx=5',
+    # start with segmentation method 6
+    'animal_id=20457 and session=1 and scan_idx=15',
+    'animal_id=20457 and session=2 and scan_idx=20',
+    'animal_id=20501 and session=1 and scan_idx=10',
+    'animal_id=20458 and session=3 and scan_idx=5',
 ]
 
 
@@ -74,15 +79,23 @@ class MovieScan(dj.Computed):
         -> fuse.ScanSet.Unit
         """
 
-    key_source = fuse.ScanDone() & MOVIESCANS & dict(segmentation_method=3, spike_method=5)
+    key_source = (fuse.ScanDone() & MOVIESCANS & dict(segmentation_method=3,
+                                                      spike_method=5) & 'animal_id < 19000').proj() + \
+                 (fuse.ScanDone() & MOVIESCANS & dict(segmentation_method=6,
+                                                      spike_method=5) & 'animal_id > 19000').proj()
 
     def _make_tuples(self, key):
         self.insert(fuse.ScanDone() & key, ignore_extra_fields=True)
         pipe = (fuse.ScanDone() & key).fetch1('pipe')
         pipe = dj.create_virtual_module(pipe, 'pipeline_' + pipe)
-        self.Unit().insert(fuse.ScanDone * pipe.ScanSet.Unit * pipe.MaskClassification.Type & key
-                           & dict(pipe_version=1, segmentation_method=3, spike_method=5, type='soma'),
-                           ignore_extra_fields=True)
+        if key['animal_id'] < 19000:
+            self.Unit().insert(fuse.ScanDone * pipe.ScanSet.Unit * pipe.MaskClassification.Type & key
+                               & dict(pipe_version=1, segmentation_method=3, spike_method=5, type='soma'),
+                               ignore_extra_fields=True)
+        else:
+            self.Unit().insert(fuse.ScanDone * pipe.ScanSet.Unit * pipe.MaskClassification.Type & key
+                               & dict(pipe_version=1, segmentation_method=6, spike_method=5, type='soma'),
+                               ignore_extra_fields=True)
 
 
 @schema
@@ -500,7 +513,7 @@ class InputResponse(dj.Computed, FilterMixin, TraceMixin):
                       val_idx=val_idx,
                       test_idx=test_idx,
                       condition_hashes=hashes.astype('S'),
-                      durations = durations.astype(np.float32),
+                      durations=durations.astype(np.float32),
                       trial_idx=trial_idx.astype(np.uint32),
                       neurons=neurons,
                       tiers=tiers.astype('S'),
@@ -610,7 +623,6 @@ class Eye(dj.Computed, FilterMixin, BehaviorMixin):
                                   dpupil=dpupil,
                                   center=center),
                              ignore_extra_fields=True)
-
 
 
 @schema
@@ -723,8 +735,11 @@ class MovieMultiDataset(dj.Manual):
                 dict(animal_id=18142, pipe_version=1, segmentation_method=3, spike_method=5)]),
             ('8973-golden', dj.AndList(['animal_id=8973 and session=1 and scan_idx in (2,3,4,5,6,9,11,12)',
                                         dict(pipe_version=1, segmentation_method=3, spike_method=5, preproc_id=0)])),
-            ('18979-2-7-jiakun',  dict(animal_id=18979, session=2, scan_idx=7, pipe_version=1, segmentation_method=3, spike_method=5)),
-            ('18799-3-14-jiakun',  dict(animal_id=18799, session=3, scan_idx=14, pipe_version=1, segmentation_method=3, spike_method=5)),
+            ('18979-2-7-jiakun',
+             dict(animal_id=18979, session=2, scan_idx=7, pipe_version=1, segmentation_method=3, spike_method=5)),
+            ('18799-3-14-jiakun',
+             dict(animal_id=18799, session=3, scan_idx=14, pipe_version=1, segmentation_method=3, spike_method=5)),
+            ('18142-all', dict(animal_id=18142, pipe_version=1, segmentation_method=3, spike_method=5, preproc_id=0)),
         ]
         for group_id, (descr, key) in enumerate(selection):
             entry = dict(group_id=group_id, description=descr)
