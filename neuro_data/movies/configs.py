@@ -10,7 +10,7 @@ from torch.utils.data.sampler import SubsetRandomSampler
 
 from .data_schemas import MovieMultiDataset
 from .schema_bridge import stimulus, experiment, anatomy
-from .transforms import Subsample, Normalizer, ToTensor, Subsequence, NormalizeInput
+from .transforms import Subsample, Normalizer, ToTensor, Subsequence, NormalizeInput, Resize
 from .. import logger as log
 from ..utils.config import ConfigBase, fixed_seed
 from ..utils.sampler import SubsetSequentialSampler, BalancedSubsetSampler
@@ -448,10 +448,12 @@ class DataConfig(ConfigBase, dj.Lookup):
                     selection.sum(), pval_thresh))
                 dataset.transforms.insert(
                     -1, Subsample(np.where(selection)[0]))
+                if scale != 1.0:
+                    resize_shape = np.round(
+                        np.array(dataset.img_shape[-2:]) * scale).astype(np.int)
+                    dataset.transforms.insert(-1, Resize(resize_shape))
                 if normalize_input:
                     dataset.transforms.insert(-1, NormalizeInput())
-                if scale != 1.0:
-                    raise NotImplementedError
                 assert np.all(dataset.neurons.unit_ids ==
                               units[selection]), 'Units are inconsistent'
             return datasets, loaders
