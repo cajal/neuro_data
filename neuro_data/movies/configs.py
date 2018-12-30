@@ -10,7 +10,7 @@ from torch.utils.data.sampler import SubsetRandomSampler
 
 from .data_schemas import MovieMultiDataset
 from .schema_bridge import stimulus, experiment, anatomy
-from .transforms import Subsample, Normalizer, ToTensor, Subsequence
+from .transforms import Subsample, Normalizer, ToTensor, Subsequence, NormalizeInput
 from .. import logger as log
 from ..utils.config import ConfigBase, fixed_seed
 from ..utils.sampler import SubsetSequentialSampler, BalancedSubsetSampler
@@ -420,7 +420,8 @@ class DataConfig(ConfigBase, dj.Lookup):
                 yield dict(zip(self.heading.dependent_attributes, p))
 
         def load_data(self, key, tier=None, batch_size=1, seq_len=None,
-                      Sampler=None, t_first=False, cuda=False):
+                      Sampler=None, t_first=False, cuda=False, scale=1.0, 
+                      normalize_input=False):
             from .stats import BootstrapOracleTTest
             key['seq_len'] = seq_len
             assert tier in [None, 'train', 'validation', 'test']
@@ -447,7 +448,10 @@ class DataConfig(ConfigBase, dj.Lookup):
                     selection.sum(), pval_thresh))
                 dataset.transforms.insert(
                     -1, Subsample(np.where(selection)[0]))
-
+                if normalize_input:
+                    dataset.transforms.insert(-1, NormalizeInput())
+                if scale != 1.0:
+                    raise NotImplementedError
                 assert np.all(dataset.neurons.unit_ids ==
                               units[selection]), 'Units are inconsistent'
             return datasets, loaders

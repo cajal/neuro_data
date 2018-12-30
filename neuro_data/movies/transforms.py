@@ -123,6 +123,12 @@ class ToTensor(DataTransform, Invertible):
         return x.__class__(*[torch.from_numpy(elem.astype(np.float32)).cuda()
                              if self.cuda else torch.from_numpy(elem.astype(np.float32)) for elem in x])
 
+class NormalizeInput(DataTransform):
+
+    def __call__(self, x):
+        return x.__class__(
+            **{k: getattr(x, k)/255 if k == 'inputs' else getattr(x, k) for k in x._fields})
+
 
 class Identity(DataTransform, Invertible):
     def __call__(self, x):
