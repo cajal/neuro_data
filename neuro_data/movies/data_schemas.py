@@ -21,6 +21,13 @@ dj.config['external-data'] = dict(
     protocol='file',
     location='/external/movie-data/')
 
+try:
+    # Virtual Modules
+    synicix_latent_variables = dj.create_virtual_module('synicix_latent_variables', 'synicix_latent_variables')
+except:
+    synicix_latent_variables = None
+    print('Failed to load synicix_latent_variables virutal module, please check your permissions')
+
 STACKS = [
     dict(animal_id=17977, stack_session=2, stack_idx=8, pipe_version=1, volume_id=1, registration_method=2),
     dict(animal_id=17886, stack_session=2, stack_idx=1, pipe_version=1, volume_id=1, registration_method=2),
@@ -401,6 +408,13 @@ class InputResponse(dj.Computed, FilterMixin, TraceMixin):
         if include_behavior:  # restrict trials to those that do not have NaNs in Treadmill or Eye
             data_rel = data_rel & Eye & Treadmill
 
+        # Including lv from synicix_latent_variable schema
+        include_lvs = synicix_latent_variables is not None and bool(synicix_latent_variables.LatentVariableVideoClip & key)
+        # Include_lvs is valid, thus use it to restrict data_rel
+        if include_lvs:
+            data_rel = data_rel & synicix_latent_variables.LatentVariableVideoClip
+        
+
         response = self.ResponseKeys() * (pipe.ScanSet.UnitInfo() * experiment.Layer() * anatomy.AreaMembership()
                                           & key & '(um_z >= z_start) and (um_z < z_end)')
 
@@ -418,6 +432,7 @@ class InputResponse(dj.Computed, FilterMixin, TraceMixin):
         unit_ids_tmp = animal_ids_tmp = sessions_tmp = scan_idx_tmp = layer_tmp = area_tmp = None
 
         responses, behavior, eye_position = [], [], []
+        latent_variable = []
         for stim_key in tqdm(stim_keys):
             response_block = (self.ResponseBlock() & stim_key).fetch1('responses')
             sessions, animal_ids, unit_ids, scan_idx, layer, area = \
@@ -431,6 +446,10 @@ class InputResponse(dj.Computed, FilterMixin, TraceMixin):
 
                 behavior.append(np.vstack([pupil, dpupil, treadmill]).T)
                 eye_position.append(center.T)
+
+            if include_lvs:
+                latent_variable_ids, processed_lv_frames = (synicix_latent_variables.LatentVariableVideoClip & key & stim_key).fetch('latent_variable_id', 'processed_lv_frames')
+                latent_variable.append({k:v for k, v in zip(latent_variable_ids, processed_lv_frames)})
 
             assert area_tmp is None or np.all(area_tmp == area), 'areas do not match'
             assert layer_tmp is None or np.all(layer_tmp == layer), 'layers do not match'
