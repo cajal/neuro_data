@@ -272,7 +272,7 @@ class BootstrapOracle(dj.Computed):
     def key_source(self):
         from .data_schemas import MovieMultiDataset
         return super().key_source & (
-            MovieMultiDataset.Member & 'group_id in (0, 1, 9)')
+            MovieMultiDataset.Member & 'group_id in (0, 1, 2, 9, 15, 16, 17)')
 
     def sample_from_condition_hash(self, target_hash, dataset, sample_size):
         return np.random.choice(np.where(dataset == target_hash)[0], sample_size, replace=False)
