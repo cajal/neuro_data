@@ -434,8 +434,8 @@ class BootstrapOracleTTest(dj.Computed):
         _, unit_p_values = stats.ttest_ind(
             scores_true.values, scores_null.values, 
             axis=1, equal_var=False)
-        assert (scores_true.index.values, scores_null.index.values)
-        assert (scores_true.index.values, unit_ids)
+        assert np.array_equal(scores_true.index.values, scores_null.index.values)
+        assert np.array_equal(scores_true.index.values, unit_ids)
 
         self.insert1(key)
         self.PValue().insert1(dict(key, p_value=p_value))
