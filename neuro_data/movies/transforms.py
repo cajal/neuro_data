@@ -1,7 +1,8 @@
 from attorch.dataset import H5SequenceSet, Invertible
 import numpy as np
 import torch
-
+from PIL import Image
+import torchvision
 
 
 class DataTransform:
@@ -30,7 +31,8 @@ class Normalizer(DataTransform, Invertible):
 
         exclude = self.exclude = exclude or []
 
-        self._inputs_std = data.statistics['inputs/{}/mean'.format(stats_source)].value
+        self._inputs_std = data.statistics['inputs/{}/mean'.format(
+            stats_source)].value
 
         s = np.array(data.statistics['responses/{}/std'.format(stats_source)])
 
@@ -49,19 +51,24 @@ class Normalizer(DataTransform, Invertible):
         itransforms['responses'] = lambda x: x / self._response_precision
 
         if 'eye_position' in data.data_groups:
-            s = np.array(data.statistics['behavior/{}/std'.format(stats_source)])
+            s = np.array(
+                data.statistics['behavior/{}/std'.format(stats_source)])
             idx = s > 0.01 * s.mean()
             self._behavior_precision = np.ones_like(s)
             self._behavior_precision[idx] = 1 / s[idx]
 
-            s = np.array(data.statistics['eye_position/{}/std'.format(stats_source)])
-            mu = np.array(data.statistics['eye_position/{}/mean'.format(stats_source)])
+            s = np.array(
+                data.statistics['eye_position/{}/std'.format(stats_source)])
+            mu = np.array(
+                data.statistics['eye_position/{}/mean'.format(stats_source)])
             self._eye_mean = mu
             self._eye_std = s
 
             # -- eye position
-            transforms['eye_position'] = lambda x: (x - self._eye_mean) / self._eye_std
-            itransforms['eye_position'] = lambda x: x * self._eye_std + self._eye_mean
+            transforms['eye_position'] = lambda x: (
+                x - self._eye_mean) / self._eye_std
+            itransforms['eye_position'] = lambda x: x * \
+                self._eye_std + self._eye_mean
 
             # -- behavior
             transforms['behavior'] = lambda x: x * self._behavior_precision
@@ -122,6 +129,34 @@ class ToTensor(DataTransform, Invertible):
     def __call__(self, x):
         return x.__class__(*[torch.from_numpy(elem.astype(np.float32)).cuda()
                              if self.cuda else torch.from_numpy(elem.astype(np.float32)) for elem in x])
+
+
+class NormalizeInput(DataTransform):
+
+    def __call__(self, x):
+        return x.__class__(
+            **{k: getattr(x, k)/255 if k == 'inputs' else getattr(x, k) for k in x._fields})
+
+
+class Resize(DataTransform):
+
+    def __init__(self, size):
+        self.torchvision_resize = torchvision.transforms.Resize(size)
+
+    def __call__(self, x):
+        def resize(inp):
+            resized = np.empty(
+                list(inp.shape[:2]) + list(self.torchvision_resize.size))
+            for frame, img in enumerate(inp[0].astype(np.uint8)):
+                pil_img = Image.fromarray(img)
+                resized[0, frame] = np.array(self.torchvision_resize(pil_img),
+                                             dtype=np.float32)
+            return resized
+        return x.__class__(
+            **{k: resize(getattr(x, k)) if k == 'inputs' else getattr(x, k) for k in x._fields})
+
+    def __repr__(self):
+        return self.__class__.__name__ + '({})'.format(self.torchvision_resize.size)
 
 
 class Identity(DataTransform, Invertible):
