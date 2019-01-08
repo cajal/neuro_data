@@ -412,8 +412,9 @@ class BootstrapOracleTTest(dj.Computed):
 
     def make(self, key):
         num_seeds = len(BootstrapOracleSeed())
-
-        unit_ids = (MovieScan.Unit & key).fetch('unit_id')
+        
+        dset = load_dataset(key)
+        unit_ids = dset.neurons.unit_ids
         unit_scores = pd.DataFrame((BootstrapOracle.UnitScore & key).fetch())
 
         assert len(unit_scores) == num_seeds * len(unit_ids)
@@ -424,14 +425,17 @@ class BootstrapOracleTTest(dj.Computed):
             mean_scores.boostrap_unit_score_true.values, mean_scores.boostrap_unit_score_null.values)
 
         # Computing unit scores
+        scores_true = unit_scores.pivot(
+                index='unit_id', columns='oracle_bootstrap_seed',
+                values='boostrap_unit_score_true')
+        scores_null = unit_scores.pivot(
+            index='unit_id', columns='oracle_bootstrap_seed',
+            values='boostrap_unit_score_null')
         _, unit_p_values = stats.ttest_ind(
-            unit_scores.pivot(
-                index='unit_id', columns='oracle_bootstrap_seed',
-                values='boostrap_unit_score_true').values,
-            unit_scores.pivot(
-                index='unit_id', columns='oracle_bootstrap_seed',
-                values='boostrap_unit_score_null').values, axis=1,
-            equal_var=False)
+            scores_true.values, scores_null.values, 
+            axis=1, equal_var=False)
+        assert (scores_true.index.values, scores_null.index.values)
+        assert (scores_true.index.values, unit_ids)
 
         self.insert1(key)
         self.PValue().insert1(dict(key, p_value=p_value))
