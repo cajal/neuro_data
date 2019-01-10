@@ -409,11 +409,13 @@ class InputResponse(dj.Computed, FilterMixin, TraceMixin):
             data_rel = data_rel & Eye & Treadmill
 
         # Including lv from synicix_latent_variable schema
-        include_lvs = synicix_latent_variables is not None and bool(synicix_latent_variables.LatentVariableVideoClip & key)
+        include_lvs = synicix_latent_variables is not None and bool(synicix_latent_variables.LatentVariableVideoClip & (stimulus.Trial & key))
         # Include_lvs is valid, thus use it to restrict data_rel
+        print(key)
+        print(data_rel & key)
         if include_lvs:
             data_rel = data_rel & synicix_latent_variables.LatentVariableVideoClip
-        
+        print(data_rel & key)
 
         response = self.ResponseKeys() * (pipe.ScanSet.UnitInfo() * experiment.Layer() * anatomy.AreaMembership()
                                           & key & '(um_z >= z_start) and (um_z < z_end)')
@@ -432,7 +434,8 @@ class InputResponse(dj.Computed, FilterMixin, TraceMixin):
         unit_ids_tmp = animal_ids_tmp = sessions_tmp = scan_idx_tmp = layer_tmp = area_tmp = None
 
         responses, behavior, eye_position = [], [], []
-        latent_variable = []
+        latent_variable = {}
+        print(len(stim_keys))
         for stim_key in tqdm(stim_keys):
             response_block = (self.ResponseBlock() & stim_key).fetch1('responses')
             sessions, animal_ids, unit_ids, scan_idx, layer, area = \
@@ -449,7 +452,8 @@ class InputResponse(dj.Computed, FilterMixin, TraceMixin):
 
             if include_lvs:
                 latent_variable_ids, processed_lv_frames = (synicix_latent_variables.LatentVariableVideoClip & key & stim_key).fetch('latent_variable_id', 'processed_lv_frames')
-                latent_variable.append({k:v for k, v in zip(latent_variable_ids, processed_lv_frames)})
+                for k, v in zip(latent_variable_ids, processed_lv_frames):
+                    latent_variable.setdefault(str(k), []).append(v)
 
             assert area_tmp is None or np.all(area_tmp == area), 'areas do not match'
             assert layer_tmp is None or np.all(layer_tmp == layer), 'layers do not match'
@@ -541,6 +545,9 @@ class InputResponse(dj.Computed, FilterMixin, TraceMixin):
         if include_behavior:
             retval['behavior'] = behavior
             retval['eye_position'] = eye_position
+
+        if include_lvs:
+            retval['latent_variables'] = latent_variable
         return retval
 
 
