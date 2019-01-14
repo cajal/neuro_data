@@ -9,7 +9,7 @@ from ..utils.sampler import SubsetSequentialSampler, BalancedSubsetSampler
 from ..utils.config import ConfigBase
 import datajoint as dj
 from .. import logger as log
-
+import warnings
 import numpy as np
 from torch.utils.data import DataLoader
 
@@ -26,6 +26,7 @@ class BackwardCompatibilityMixin:
 
     @staticmethod
     def add_transforms(key, datasets, exclude=None):
+        warnings.warn('You are using an outdated `add_transform` kept for backward compatibility. Do not use this in new networks.')
         if exclude is not None:
             log.info('Excluding "{}" from normalization'.format(
                 '", "'.join(exclude)))
