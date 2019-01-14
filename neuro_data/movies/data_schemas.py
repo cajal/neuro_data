@@ -411,11 +411,10 @@ class InputResponse(dj.Computed, FilterMixin, TraceMixin):
         # Including lv from synicix_latent_variable schema
         include_lvs = synicix_latent_variables is not None and bool(synicix_latent_variables.LatentVariableVideoClip & (stimulus.Trial & key))
         # Include_lvs is valid, thus use it to restrict data_rel
-        print(key)
-        print(data_rel & key)
+
         if include_lvs:
             data_rel = data_rel & synicix_latent_variables.LatentVariableVideoClip
-        print(data_rel & key)
+
 
         response = self.ResponseKeys() * (pipe.ScanSet.UnitInfo() * experiment.Layer() * anatomy.AreaMembership()
                                           & key & '(um_z >= z_start) and (um_z < z_end)')
@@ -451,9 +450,9 @@ class InputResponse(dj.Computed, FilterMixin, TraceMixin):
                 eye_position.append(center.T)
 
             if include_lvs:
-                latent_variable_ids, processed_lv_frames = (synicix_latent_variables.LatentVariableVideoClip & key & stim_key).fetch('latent_variable_id', 'processed_lv_frames')
-                for k, v in zip(latent_variable_ids, processed_lv_frames):
-                    latent_variable.setdefault(str(k), []).append(v)
+                latent_variables_name, processed_lv_frames = (synicix_latent_variables.LatentVariableVideoClip * synicix_latent_variables.LatentVariableType & key & stim_key).fetch('latent_variable_name', 'processed_lv_frames')
+                for k, v in zip(latent_variables_name, processed_lv_frames):
+                    latent_variable.setdefault(k, []).append(v)
 
             assert area_tmp is None or np.all(area_tmp == area), 'areas do not match'
             assert layer_tmp is None or np.all(layer_tmp == layer), 'layers do not match'
@@ -529,6 +528,15 @@ class InputResponse(dj.Computed, FilterMixin, TraceMixin):
             statistics['behavior'] = behavior_statistics
             statistics['eye_position'] = eye_statistics
 
+        if include_lvs:
+            # ---- include lv statistics
+            latent_variable_names = (synicix_latent_variables.LatentVariableType * synicix_latent_variables.LatentVariableVideoClip & (stimulus.Trial & key)).fetch('latent_variable_name', order_by = 'latent_variable_id')
+
+            
+            for latent_variable_name in latent_variable_names:
+                lv_selector = lambda ix: np.concatenate([r for take, r in zip(ix, latent_variable[latent_variable_name]) if take], axis=0)
+                statistics[latent_variable_name] = run_stats(lv_selector, types, train_idx, axis=0)
+                
         retval = dict(inputs=inputs,
                       responses=responses,
                       types=types.astype('S'),
@@ -547,7 +555,8 @@ class InputResponse(dj.Computed, FilterMixin, TraceMixin):
             retval['eye_position'] = eye_position
 
         if include_lvs:
-            retval['latent_variables'] = latent_variable
+            for latent_variable_type, lv_frames in latent_variable.items():
+                retval[latent_variable_type] = lv_frames
         return retval
 
 
@@ -649,7 +658,6 @@ class Eye(dj.Computed, FilterMixin, BehaviorMixin):
                                   dpupil=dpupil,
                                   center=center),
                              ignore_extra_fields=True)
-
 
 
 @schema
@@ -790,11 +798,21 @@ class MovieMultiDataset(dj.Manual):
                                                 order_by='animal_id ASC, session ASC, scan_idx ASC, preproc_id ASC'):
             name = (self.Member() & mkey).fetch1('name')
             include_behavior = bool(Eye() * Treadmill() & mkey)
+
+            # Including lv from synicix_latent_variable schema
+            include_lvs = synicix_latent_variables is not None and bool(synicix_latent_variables.LatentVariableVideoClip & (stimulus.Trial & mkey))
+            latent_variable_names = (synicix_latent_variables.LatentVariableType & (synicix_latent_variables.LatentVariableVideoClip & (stimulus.Trial & mkey))).fetch('latent_variable_name', order_by = 'latent_variable_id')
+
             data_names = ['inputs', 'responses'] if not include_behavior \
                 else ['inputs',
                       'behavior',
                       'eye_position',
                       'responses']
+
+            # Sandwich latent_variable_names into the list
+            if include_lvs:
+                data_names = data_names[:-1] + latent_variable_names.tolist() + data_names[-1:]
+
             log.info('Data will be ({})'.format(','.join(data_names)))
 
             filename = InputResponse().get_filename(mkey)

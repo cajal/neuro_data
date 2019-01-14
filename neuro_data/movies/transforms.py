@@ -67,6 +67,18 @@ class Normalizer(DataTransform, Invertible):
             transforms['behavior'] = lambda x: x * self._behavior_precision
             itransforms['behavior'] = lambda x: x / self._behavior_precision
 
+        def make_normalizer(mean, std):
+            forward = lambda x: (x - mean) / std
+            reverse = lambda x: x * std + mean
+            return forward, reverse
+
+        for attr in data.data_groups:
+            if attr in ['inputs', 'responses', 'eye_position', 'behavior']: # These are handle specially
+                continue
+            s = np.array(data.statistics['{}/{}/std'.format(attr, stats_source)])
+            mu = np.array(data.statistics['{}/{}/mean'.format(attr, stats_source)])
+            transforms[attr], itransforms[attr] = make_normalizer(mu, s)
+
         self._transforms = transforms
         self._itransforms = itransforms
 
