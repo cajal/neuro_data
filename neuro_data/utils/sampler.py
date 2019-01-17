@@ -3,6 +3,7 @@ from collections import Counter
 import torch
 import numpy as np
 from torch.utils.data.sampler import Sampler
+from itertools import chain
 
 
 class SubsetSequentialSampler(Sampler):
@@ -20,6 +21,48 @@ class SubsetSequentialSampler(Sampler):
 
     def __len__(self):
         return len(self.indices)
+
+
+class RepeatSubsetRandomSampler(Sampler):
+    r"""Samples elements randomly from a given list of indices, without replacement for a repeated number of times.
+
+    Arguments:
+        indices (sequence): a sequence of indices
+        repeat (int)
+    """
+
+    def __init__(self, indices, repeat=1):
+        self.indices = indices
+        self.repeat = repeat
+
+    def __iter__(self):
+        return chain.from_iterable(
+            (self.indices[i] for i in torch.randperm(len(self.indices)))
+            for _ in range(self.repeat))
+
+    def __len__(self):
+        return len(self.indices) * self.repeat
+
+
+class RepeatSubsetSequentialSampler(Sampler):
+    r"""Samples elements sequentially from a given list of indices, without replacement for a repeated number of times.
+
+    Arguments:
+        indices (sequence): a sequence of indices
+        repeat (int)
+    """
+
+    def __init__(self, indices, repeat=1):
+        self.indices = indices
+        self.repeat = repeat
+
+    def __iter__(self):
+        return chain.from_iterable(
+            (self.indices[i] for i in range(len(self.indices)))
+            for _ in range(self.repeat))
+
+    def __len__(self):
+        return len(self.indices) * self.repeat
 
 
 class SubSubsetRandomSequentialSampler(Sampler):

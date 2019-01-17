@@ -13,7 +13,7 @@ from .schema_bridge import stimulus, experiment, anatomy
 from .transforms import Subsample, Normalizer, ToTensor, Subsequence, NormalizeInput, Resize
 from .. import logger as log
 from ..utils.config import ConfigBase, fixed_seed
-from ..utils.sampler import SubsetSequentialSampler, BalancedSubsetSampler
+from ..utils.sampler import RepeatSubsetSequentialSampler, BalancedSubsetSampler, RepeatSubsetRandomSampler
 
 
 schema = dj.schema('neurodata_movie_configs', locals())
@@ -97,11 +97,11 @@ class StimulusTypeMixin:
         assert tier in ['train', 'validation', 'test', None]
         if tier == 'train':
             if not balanced:
-                Sampler = SubsetRandomSampler
+                Sampler = RepeatSubsetRandomSampler
             else:
                 Sampler = BalancedSubsetSampler
         else:
-            Sampler = SubsetSequentialSampler
+            Sampler = RepeatSubsetSequentialSampler
         return Sampler
 
     def log_loader(self, loader):
@@ -114,7 +114,7 @@ class StimulusTypeMixin:
 
     def get_loaders(self, datasets, tier, batch_size, stimulus_types, balanced=False,
                     merge_noise_types=True, shrink_to_same_size=False, Sampler=None,
-                    t_first=False):
+                    t_first=False, repeat=1):
         if Sampler is None:
             Sampler = self.get_sampler_class(tier, balanced)
 
@@ -168,6 +168,9 @@ class StimulusTypeMixin:
                 types = np.array(
                     [('Clip' if t == 'stimulus.Clip' else 'Noise') for t in dataset.types])
                 sampler = Sampler(ix, types)
+            elif Sampler in (RepeatSubsetSequentialSampler, RepeatSubsetRandomSampler):
+                log.info('Number of repeats={}'.format(repeat))
+                sampler = Sampler(ix, repeat=repeat)
             else:
                 sampler = Sampler(ix)
             if t_first:
@@ -184,7 +187,7 @@ class StimulusTypeMixin:
     def load_data(self, key, stimulus_types, tier=None, batch_size=1, key_order=None,
                   normalize=True, exclude_from_normalization=None,
                   balanced=False, shrink_to_same_size=False, cuda=False,
-                  Sampler=None, t_first=False):
+                  Sampler=None, t_first=False, repeat=1):
         log.info('Loading {} datasets with tier {}'.format(
             pformat(stimulus_types, indent=20), tier))
         datasets = MovieMultiDataset().fetch_data(key, key_order=key_order)
@@ -201,13 +204,13 @@ class StimulusTypeMixin:
         loaders = self.get_loaders(
             datasets, tier, batch_size, stimulus_types=stimulus_types,
             balanced=balanced, shrink_to_same_size=shrink_to_same_size,
-            Sampler=Sampler, t_first=t_first)
+            Sampler=Sampler, t_first=t_first, repeat=repeat)
         return datasets, loaders
 
 
 class AreaLayerMixin(StimulusTypeMixin):
     def load_data(self, key, tier=None, batch_size=1, key_order=None, cuda=False,
-                  Sampler=None, t_first=False, **kwargs):
+                  Sampler=None, t_first=False, repeat=1, **kwargs):
         log.info('Ignoring {} when loading {}'.format(
             pformat(kwargs, indent=20), self.__class__.__name__))
         shrink = key.pop('shrink', False)
@@ -220,7 +223,7 @@ class AreaLayerMixin(StimulusTypeMixin):
                                               normalize=key.pop('normalize'),
                                               balanced=balanced,
                                               shrink_to_same_size=shrink,
-                                              cuda=cuda, Sampler=Sampler, t_first=t_first)
+                                              cuda=cuda, Sampler=Sampler, t_first=t_first, repeat=repeat)
 
         log.info(
             'Subsampling to layer "{layer}" and area "{brain_area}"'.format(**key))
@@ -422,13 +425,13 @@ class DataConfig(ConfigBase, dj.Lookup):
 
         def load_data(self, key, tier=None, batch_size=1, seq_len=None,
                       Sampler=None, t_first=False, cuda=False, scale=1.0, 
-                      normalize_input=False):
+                      normalize_input=False, repeat=1):
             from .stats import BootstrapOracleTTest
             key['seq_len'] = seq_len
             assert tier in [None, 'train', 'validation', 'test']
             datasets, loaders = super().load_data(
                 key, tier=tier, batch_size=batch_size, Sampler=Sampler,
-                t_first=t_first, cuda=cuda)
+                t_first=t_first, cuda=cuda, repeat=repeat)
 
             for rok, dataset in datasets.items():
                 member_key = (MovieMultiDataset.Member() & key &
