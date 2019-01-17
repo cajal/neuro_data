@@ -48,6 +48,7 @@ MOVIESCANS = [  # '(animal_id=16278 and session=11 and scan_idx between 5 and 9)
     platinum.CuratedScan() & dict(animal_id=18142, scan_purpose='trainable_platinum_classic', score=4),
     platinum.CuratedScan() & dict(animal_id=17797, scan_purpose='trainable_platinum_classic') & 'score > 2',
     'animal_id=16314 and session=3 and scan_idx=1',
+    # golden
     experiment.Scan() & (stimulus.Trial & stimulus.Condition() & stimulus.Monet()) & dict(animal_id=8973),
     'animal_id=18979 and session=2 and scan_idx=7',
     'animal_id=18799 and session=3 and scan_idx=14',
@@ -58,6 +59,8 @@ MOVIESCANS = [  # '(animal_id=16278 and session=11 and scan_idx between 5 and 9)
     'animal_id=20457 and session=2 and scan_idx=20',
     'animal_id=20501 and session=1 and scan_idx=10',
     'animal_id=20458 and session=3 and scan_idx=5',
+    # manolis data
+    'animal_id=16314 and session=4 and scan_idx=3',
 ]
 
 
@@ -625,6 +628,7 @@ class Eye(dj.Computed, FilterMixin, BehaviorMixin):
                              ignore_extra_fields=True)
 
 
+
 @schema
 class Treadmill(dj.Computed, FilterMixin, BehaviorMixin):
     definition = """
@@ -740,6 +744,8 @@ class MovieMultiDataset(dj.Manual):
             ('18799-3-14-jiakun',
              dict(animal_id=18799, session=3, scan_idx=14, pipe_version=1, segmentation_method=3, spike_method=5)),
             ('18142-all', dict(animal_id=18142, pipe_version=1, segmentation_method=3, spike_method=5, preproc_id=0)),
+            ('16314-4-3-objects', dict(animal_id=16314, session=4, scan_idx=3,
+                                pipe_version=1, segmentation_method=6, spike_method=5, preproc_id=0)),
         ]
         for group_id, (descr, key) in enumerate(selection):
             entry = dict(group_id=group_id, description=descr)
@@ -781,6 +787,11 @@ class MovieMultiDataset(dj.Manual):
                 (k, ret[k]) for k in key_order
             ])
         return ret
+
+    def cache_data(self):
+        for key in self:
+            log.info('Checking'+ pformat(key, indent=10))
+            self.fetch_data(key)
 
 
 class AttributeTransformer:
