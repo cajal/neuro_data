@@ -306,7 +306,9 @@ class MovieClips(dj.Computed, FilterMixin):
         self.insert1(dict(key, frames=movie.transpose([2, 0, 1]), sample_times=samps, fps0=frame_rate))
 
 
-@h5cached('/external/cache/', mode='groups', transfer_to_tmp=False,
+#@h5cached('/external/cache/', mode='groups', transfer_to_tmp=False,
+ #         file_format='movies{animal_id}-{session}-{scan_idx}-pre{preproc_id}-pipe{pipe_version}-seg{segmentation_method}-spike{spike_method}.h5')
+@h5cached('Z:\\synicix_latent_variables\\cache\\', mode='groups', transfer_to_tmp=False,
           file_format='movies{animal_id}-{session}-{scan_idx}-pre{preproc_id}-pipe{pipe_version}-seg{segmentation_method}-spike{spike_method}.h5')
 @schema
 class InputResponse(dj.Computed, FilterMixin, TraceMixin):
@@ -451,6 +453,8 @@ class InputResponse(dj.Computed, FilterMixin, TraceMixin):
 
             if include_lvs:
                 latent_variables_name, processed_lv_frames = (synicix_latent_variables.LatentVariableVideoClip * synicix_latent_variables.LatentVariableType & key & stim_key).fetch('latent_variable_name', 'processed_lv_frames')
+                # process_lv_frames are formated by n * h * w * c by default, so we must transpose it to c * n * h * w
+                processed_lv_frames = processed_lv_frames.transpose([3, 0, 1, 2])
                 for k, v in zip(latent_variables_name, processed_lv_frames):
                     latent_variable.setdefault(k, []).append(v)
 
