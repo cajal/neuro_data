@@ -454,7 +454,7 @@ class InputResponse(dj.Computed, FilterMixin, TraceMixin):
             if include_lvs:
                 latent_variables_name, processed_lv_frames = (synicix_latent_variables.LatentVariableVideoClip * synicix_latent_variables.LatentVariableType & key & stim_key).fetch('latent_variable_name', 'processed_lv_frames')
                 # process_lv_frames are formated by n * h * w * c by default, so we must transpose it to c * n * h * w
-                processed_lv_frames = processed_lv_frames.transpose([3, 0, 1, 2])
+                processed_lv_frames = [lv.transpose([3, 0, 1, 2]) for lv in processed_lv_frames]
                 for k, v in zip(latent_variables_name, processed_lv_frames):
                     latent_variable.setdefault(k, []).append(v)
 
