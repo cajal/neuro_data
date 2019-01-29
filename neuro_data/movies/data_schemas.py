@@ -22,14 +22,10 @@ dj.config['external-data'] = dict(
     location='/external/movie-data/')
 
 STACKS = [
-    dict(animal_id=17977, stack_session=2, stack_idx=8,
-         pipe_version=1, volume_id=1, registration_method=2),
-    dict(animal_id=17886, stack_session=2, stack_idx=1,
-         pipe_version=1, volume_id=1, registration_method=2),
-    dict(animal_id=17797, stack_session=6, stack_idx=9,
-         pipe_version=1, volume_id=1, registration_method=2),
-    dict(animal_id=17795, stack_session=3, stack_idx=1,
-         pipe_version=1, volume_id=1, registration_method=2),
+    dict(animal_id=17977, stack_session=2, stack_idx=8, pipe_version=1, volume_id=1, registration_method=2),
+    dict(animal_id=17886, stack_session=2, stack_idx=1, pipe_version=1, volume_id=1, registration_method=2),
+    dict(animal_id=17797, stack_session=6, stack_idx=9, pipe_version=1, volume_id=1, registration_method=2),
+    dict(animal_id=17795, stack_session=3, stack_idx=1, pipe_version=1, volume_id=1, registration_method=2),
 ]
 
 UNIQUE_CLIP = {
@@ -44,16 +40,13 @@ schema = dj.schema('neurodata_movies', locals())
 
 MOVIESCANS = [  # '(animal_id=16278 and session=11 and scan_idx between 5 and 9)',  # hollymonet
     # '(animal_id=15685 and session=2 and scan_idx between 11 and 15)',  # hollymonet
-    # platinum (scan_idx in (10, 14))
-    'animal_id=17021 and session=18 and scan_idx=11',
+    'animal_id=17021 and session=18 and scan_idx=11',  # platinum (scan_idx in (10, 14))
     'animal_id=9771 and session=1 and scan_idx in (1,2)',  # madmonet
     'animal_id=17871 and session=4 and scan_idx=13',  # palindrome mouse
     'animal_id=17358 and session=5 and scan_idx=3',  # platinum
     'animal_id=17358 and session=9 and scan_idx=1',  # platinum
-    platinum.CuratedScan() & dict(
-        animal_id=18142, scan_purpose='trainable_platinum_classic', score=4),
-    platinum.CuratedScan() & dict(
-        animal_id=17797, scan_purpose='trainable_platinum_classic') & 'score > 2',
+    platinum.CuratedScan() & dict(animal_id=18142, scan_purpose='trainable_platinum_classic', score=4),
+    platinum.CuratedScan() & dict(animal_id=17797, scan_purpose='trainable_platinum_classic') & 'score > 2',
     'animal_id=16314 and session=3 and scan_idx=1',
     # golden
     experiment.Scan() & (stimulus.Trial & stimulus.Condition() & stimulus.Monet()) & dict(animal_id=8973),
@@ -161,17 +154,17 @@ class ConditionTier(dj.Computed):
     def check_train_test_split(self, clips, cond):
         stim = getattr(stimulus, cond['stimulus_type'].split('.')[-1])
         train_test = dj.U(*UNIQUE_CLIP[cond['stimulus_type']]).aggr(clips * stim, train='sum(1-test)', test='sum(test)') \
-            & 'train>0 and test>0'
+                     & 'train>0 and test>0'
         assert len(train_test) == 0, 'Train and test clips do overlap'
 
     def fill_up(self, tier, clips, cond, key, m):
         existing = ConditionTier().proj() & (self & dict(tier=tier)) \
-            & (stimulus.Trial() * stimulus.Condition() & dict(key, **cond))
+                   & (stimulus.Trial() * stimulus.Condition() & dict(key, **cond))
         n = len(existing)
         if n < m:
             # all hashes that are in clips but not registered for that animal and have the right tier
             candidates = dj.U('condition_hash') & \
-                (self & (dj.U('condition_hash') & (clips - self)) & dict(tier=tier))
+                         (self & (dj.U('condition_hash') & (clips - self)) & dict(tier=tier))
             keys = candidates.fetch(dj.key)
             d = m - n
             update = min(len(keys), d)
@@ -183,7 +176,7 @@ class ConditionTier(dj.Computed):
                 self.insert1(k, ignore_extra_fields=True)
 
         existing = ConditionTier().proj() & (self & dict(tier=tier)) \
-            & (stimulus.Trial() * stimulus.Condition() & dict(key, **cond))
+                   & (stimulus.Trial() * stimulus.Condition() & dict(key, **cond))
         n = len(existing)
         if n < m:
             keys = (clips - self).fetch(dj.key)
@@ -197,22 +190,19 @@ class ConditionTier(dj.Computed):
         log.info('Processing ' + repr(key))
         conditions = dj.U('stimulus_type').aggr(stimulus.Condition() & (stimulus.Trial() & key),
                                                 count='count(*)') \
-            & 'stimulus_type in ("stimulus.Clip","stimulus.Monet", "stimulus.Monet2", "stimulus.Trippy", "stimulus.Matisse2")'
+                     & 'stimulus_type in ("stimulus.Clip","stimulus.Monet", "stimulus.Monet2", "stimulus.Trippy", "stimulus.Matisse2")'
         for cond in conditions.fetch(as_dict=True):
-            log.info(
-                'Checking condition {stimulus_type} (n={count})'.format(**cond))
+            log.info('Checking condition {stimulus_type} (n={count})'.format(**cond))
             clips = (stimulus.Condition() * MovieScan() & key & cond).aggr(stimulus.Trial(), repeats="count(*)",
                                                                            test='count(*) > 4')
             self.check_train_test_split(clips, cond)
 
             m = len(clips)
             m_test = m_val = len(clips & 'test > 0') or max(m // 10, 1)
-            log.info(
-                'Minimum test and validation set size will be {}'.format(m_test))
+            log.info('Minimum test and validation set size will be {}'.format(m_test))
 
             # insert repeats as test trials
-            self.insert((clips & dict(test=1)).proj(
-                tier='"test"'), ignore_extra_fields=True)
+            self.insert((clips & dict(test=1)).proj(tier='"test"'), ignore_extra_fields=True)
             self.fill_up('test', clips, cond, key, m_test)
             self.fill_up('validation', clips, cond, key, m_val)
             self.fill_up('train', clips, cond, key, m - m_test - m_val)
@@ -235,10 +225,8 @@ class MovieClips(dj.Computed, FilterMixin):
     def get_frame_rate(self, key):
         stimulus_type = (stimulus.Condition() & key).fetch1('stimulus_type')
         if stimulus_type == 'stimulus.Clip':
-            assert len(stimulus.Clip() &
-                       key) == 1, 'key must specify exactly one clip'
-            frame_rate = (stimulus.Movie() * stimulus.Clip()
-                          & key).fetch1('frame_rate')
+            assert len(stimulus.Clip() & key) == 1, 'key must specify exactly one clip'
+            frame_rate = (stimulus.Movie() * stimulus.Clip() & key).fetch1('frame_rate')
         else:
             movie_rel = getattr(stimulus, stimulus_type.split('.')[-1])
             frame_rate = (movie_rel() & key).fetch1('fps')
@@ -250,19 +238,16 @@ class MovieClips(dj.Computed, FilterMixin):
         stimulus_type = (stimulus.Condition() & key).fetch1('stimulus_type')
 
         if stimulus_type == 'stimulus.Clip':
-            assert len(stimulus.Clip() &
-                       key) == 1, 'key must specify exactly one clip'
+            assert len(stimulus.Clip() & key) == 1, 'key must specify exactly one clip'
             movie, frame_rate = (stimulus.Movie() * stimulus.Movie.Clip()
                                  * stimulus.Clip() & key).fetch1('clip', 'frame_rate')
             vid = imageio.get_reader(io.BytesIO(movie.tobytes()), 'ffmpeg')
             # convert to grayscale and stack to movie in width x height x time
             m = vid.get_length()
-            movie = np.stack([vid.get_data(i).mean(axis=-1)
-                              for i in range(m)], axis=2)
+            movie = np.stack([vid.get_data(i).mean(axis=-1) for i in range(m)], axis=2)
         else:
             movie_rel = getattr(stimulus, stimulus_type.split('.')[-1])
-            assert len(
-                movie_rel() & key) == 1, 'key must specify exactly one clip'
+            assert len(movie_rel() & key) == 1, 'key must specify exactly one clip'
             movie, frame_rate = (movie_rel() & key).fetch1('movie', 'fps')
 
         frame_rate = float(frame_rate)  # in case it was a decimal
@@ -275,11 +260,9 @@ class MovieClips(dj.Computed, FilterMixin):
 
     def adjust_duration(self, key, base):
         if stimulus.Clip() & key:
-            duration, skip_time = map(
-                float, (stimulus.Clip() & key).fetch1('cut_after', 'skip_time'))
+            duration, skip_time = map(float, (stimulus.Clip() & key).fetch1('cut_after', 'skip_time'))
             duration = min(base.max(), duration)
-            log.info('Stimulus duration is cut to {}s with {}s skiptime'.format(
-                duration, skip_time))
+            log.info('Stimulus duration is cut to {}s with {}s skiptime'.format(duration, skip_time))
         else:
             duration = base.max()
             skip_time = 0
@@ -289,41 +272,34 @@ class MovieClips(dj.Computed, FilterMixin):
     def _make_tuples(self, key):
         log.info(80 * '-')
         log.info('Processing key ' + repr(key))
-        sampling_period = float((Preprocessing() & key).proj(
-            period='1/resampl_freq').fetch1('period'))
-        imgsize = (Preprocessing() & key).fetch1(
-            'col', 'row')  # target size of movie frames
+        sampling_period = float((Preprocessing() & key).proj(period='1/resampl_freq').fetch1('period'))
+        imgsize = (Preprocessing() & key).fetch1('col', 'row')  # target size of movie frames
 
         log.info('Downsampling movie to {}'.format(repr(imgsize)))
         movie, frame_rate = self.load_movie(key)
 
         # --- downsampling movie
-        h_movie = self.get_filter(
-            sampling_period, 1 / frame_rate, 'hamming', warning=False)
+        h_movie = self.get_filter(sampling_period, 1 / frame_rate, 'hamming', warning=False)
 
         if not movie.shape[0] / imgsize[1] == movie.shape[1] / imgsize[0]:
             log.warning('Image size changes aspect ratio.')
 
-        movie2 = np.stack([cv2.resize(m, imgsize, interpolation=cv2.INTER_AREA)
+        movie2 = np.stack([cv2.resize(m, imgsize, interpolation=cv2.INTER_AREA) \
                            for m in movie.squeeze().transpose([2, 0, 1])],
                           axis=0)
         movie = movie2.astype(np.float32).transpose([1, 2, 0])
         # low pass filter movie
-        movie = np.apply_along_axis(lambda m: np.convolve(
-            m, h_movie, mode='same'), axis=-1, arr=movie)
-        # np.vstack([ft - ft[0] for ft in flip_times]).mean(axis=0)
-        base = np.arange(movie.shape[-1]) / frame_rate
+        movie = np.apply_along_axis(lambda m: np.convolve(m, h_movie, mode='same'), axis=-1, arr=movie)
+        base = np.arange(movie.shape[-1]) / frame_rate  # np.vstack([ft - ft[0] for ft in flip_times]).mean(axis=0)
 
         duration, skip_time = self.adjust_duration(key, base)
-        # samps is relative to fliptime 0
-        samps = np.arange(0, duration, sampling_period)
+        samps = np.arange(0, duration, sampling_period)  # samps is relative to fliptime 0
 
         movie_spline = SplineMovie(base, movie, k=1, ext=1)
         movie = movie_spline(samps + skip_time).astype(np.float32)
 
         # --- generate response sampling points and sample movie frames relative to it
-        self.insert1(dict(key, frames=movie.transpose(
-            [2, 0, 1]), sample_times=samps, fps0=frame_rate))
+        self.insert1(dict(key, frames=movie.transpose([2, 0, 1]), sample_times=samps, fps0=frame_rate))
 
 
 @h5cached('/external/cache/', mode='groups', transfer_to_tmp=False,
@@ -368,8 +344,7 @@ class InputResponse(dj.Computed, FilterMixin, TraceMixin):
         traces, frame_times, trace_keys = self.load_traces_and_frametimes(key)
         log.info('Loaded {} traces'.format(len(traces)))
 
-        log.info('Generating lowpass filters with cutoff {:.3f}Hz'.format(
-            1 / sampling_period))
+        log.info('Generating lowpass filters with cutoff {:.3f}Hz'.format(1 / sampling_period))
         h_trace = self.get_filter(sampling_period, np.median(np.diff(frame_times)), 'hamming',
                                   warning=False)
         # low pass filter
@@ -382,23 +357,18 @@ class InputResponse(dj.Computed, FilterMixin, TraceMixin):
         log.info('Populating {}'.format(repr(scan_key)).ljust(80, '-'))
         self.insert1(scan_key)
         # integration window size for responses
-        sampling_period = (Preprocessing() & scan_key).proj(
-            period='1/resampl_freq').fetch1('period')
+        sampling_period = (Preprocessing() & scan_key).proj(period='1/resampl_freq').fetch1('period')
 
-        log.info('Sampling neural responses at {}s intervals'.format(
-            sampling_period))
+        log.info('Sampling neural responses at {}s intervals'.format(sampling_period))
 
-        trace_spline, trace_keys, ftmin, ftmax = self.get_trace_spline(
-            scan_key, sampling_period)
+        trace_spline, trace_keys, ftmin, ftmax = self.get_trace_spline(scan_key, sampling_period)
 
         flip_times, sample_times, fps0, trial_keys = \
             (MovieScan() * MovieClips() * stimulus.Trial() & scan_key).fetch('flip_times', 'sample_times', 'fps0',
                                                                              dj.key)
         flip_times = [ft.squeeze() for ft in flip_times]
-        nodrop = np.array([np.diff(ft).max() < 1.99 /
-                           frame_rate for ft, frame_rate in zip(flip_times, fps0)])
-        valid = np.array([ft.min() >= ftmin and ft.max() <=
-                          ftmax for ft in flip_times], dtype=bool)
+        nodrop = np.array([np.diff(ft).max() < 1.99 / frame_rate for ft, frame_rate in zip(flip_times, fps0)])
+        valid = np.array([ft.min() >= ftmin and ft.max() <= ftmax for ft in flip_times], dtype=bool)
         if not np.all(nodrop & valid):
             log.warning('Dropping {} trials with dropped frames or flips outside the recording interval'.format(
                 (~(nodrop & valid)).sum()))
@@ -426,11 +396,10 @@ class InputResponse(dj.Computed, FilterMixin, TraceMixin):
 
         # make sure that including areas does not decreas number of neurons
         assert len(pipe.ScanSet.UnitInfo() * experiment.Layer() * anatomy.AreaMembership() & key) == \
-            len(pipe.ScanSet.UnitInfo() * experiment.Layer() &
-                key), "AreaMembership decreases number of neurons"
+               len(pipe.ScanSet.UnitInfo() * experiment.Layer() & key), "AreaMembership decreases number of neurons"
 
         data_rel = MovieClips() * ConditionTier() \
-            * self.Input() * self.ResponseBlock() * stimulus.Condition().proj('stimulus_type')
+                   * self.Input() * self.ResponseBlock() * stimulus.Condition().proj('stimulus_type')
 
         if include_behavior:  # restrict trials to those that do not have NaNs in Treadmill or Eye
             data_rel = data_rel & Eye & Treadmill
@@ -453,8 +422,7 @@ class InputResponse(dj.Computed, FilterMixin, TraceMixin):
 
         responses, behavior, eye_position = [], [], []
         for stim_key in tqdm(stim_keys):
-            response_block = (self.ResponseBlock() &
-                              stim_key).fetch1('responses')
+            response_block = (self.ResponseBlock() & stim_key).fetch1('responses')
             sessions, animal_ids, unit_ids, scan_idx, layer, area = \
                 (response & key & stim_key).fetch('session', 'animal_id',
                                                   'unit_id', 'scan_idx',
@@ -467,18 +435,12 @@ class InputResponse(dj.Computed, FilterMixin, TraceMixin):
                 behavior.append(np.vstack([pupil, dpupil, treadmill]).T)
                 eye_position.append(center.T)
 
-            assert area_tmp is None or np.all(
-                area_tmp == area), 'areas do not match'
-            assert layer_tmp is None or np.all(
-                layer_tmp == layer), 'layers do not match'
-            assert unit_ids_tmp is None or np.all(
-                unit_ids_tmp == unit_ids), 'unit ids do not match'
-            assert animal_ids_tmp is None or np.all(
-                animal_ids_tmp == animal_ids), 'animal ids do not match'
-            assert sessions_tmp is None or np.all(
-                sessions_tmp == sessions), 'sessions do not match'
-            assert scan_idx_tmp is None or np.all(
-                scan_idx_tmp == scan_idx), 'scan_idx do not match'
+            assert area_tmp is None or np.all(area_tmp == area), 'areas do not match'
+            assert layer_tmp is None or np.all(layer_tmp == layer), 'layers do not match'
+            assert unit_ids_tmp is None or np.all(unit_ids_tmp == unit_ids), 'unit ids do not match'
+            assert animal_ids_tmp is None or np.all(animal_ids_tmp == animal_ids), 'animal ids do not match'
+            assert sessions_tmp is None or np.all(sessions_tmp == sessions), 'sessions do not match'
+            assert scan_idx_tmp is None or np.all(scan_idx_tmp == scan_idx), 'scan_idx do not match'
             unit_ids_tmp, animal_ids_tmp, sessions_tmp, scan_idx_tmp, layer_tmp = \
                 unit_ids, animal_ids, sessions, scan_idx, layer
             responses.append(response_block.T.astype(np.float32))
@@ -508,12 +470,10 @@ class InputResponse(dj.Computed, FilterMixin, TraceMixin):
                 train_responses = selector(ix & (types == t))
                 ret[t] = dict(
                     mean=train_responses.mean(axis=axis).astype(np.float32),
-                    std=train_responses.std(
-                        axis=axis, ddof=1).astype(np.float32),
+                    std=train_responses.std(axis=axis, ddof=1).astype(np.float32),
                     min=train_responses.min(axis=axis).astype(np.float32),
                     max=train_responses.max(axis=axis).astype(np.float32),
-                    median=np.median(
-                        train_responses, axis=axis).astype(np.float32)
+                    median=np.median(train_responses, axis=axis).astype(np.float32)
                 )
             train_responses = selector(ix)
             ret['all'] = dict(
@@ -527,14 +487,10 @@ class InputResponse(dj.Computed, FilterMixin, TraceMixin):
 
         # --- compute statistics
         log.info('Computing statistics on training dataset')
+        response_selector = lambda ix: np.concatenate([r for take, r in zip(ix, responses) if take], axis=0)
+        response_statistics = run_stats(response_selector, types, train_idx, axis=0)
 
-        def response_selector(ix): return np.concatenate(
-            [r for take, r in zip(ix, responses) if take], axis=0)
-        response_statistics = run_stats(
-            response_selector, types, train_idx, axis=0)
-
-        def input_selector(ix): return np.hstack(
-            [r.ravel() for take, r in zip(ix, inputs) if take])
+        input_selector = lambda ix: np.hstack([r.ravel() for take, r in zip(ix, inputs) if take])
         input_statistics = run_stats(input_selector, types, train_idx)
 
         statistics = dict(
@@ -544,13 +500,10 @@ class InputResponse(dj.Computed, FilterMixin, TraceMixin):
 
         if include_behavior:
             # ---- include statistics
-            def behavior_selector(ix): return np.concatenate(
-                [r for take, r in zip(ix, behavior) if take], axis=0)
-            behavior_statistics = run_stats(
-                behavior_selector, types, train_idx, axis=0)
+            behavior_selector = lambda ix: np.concatenate([r for take, r in zip(ix, behavior) if take], axis=0)
+            behavior_statistics = run_stats(behavior_selector, types, train_idx, axis=0)
 
-            def eye_selector(ix): return np.concatenate(
-                [r for take, r in zip(ix, eye_position) if take], axis=0)
+            eye_selector = lambda ix: np.concatenate([r for take, r in zip(ix, eye_position) if take], axis=0)
             eye_statistics = run_stats(eye_selector, types, train_idx, axis=0)
 
             statistics['behavior'] = behavior_statistics
@@ -577,8 +530,7 @@ class InputResponse(dj.Computed, FilterMixin, TraceMixin):
 
 class BehaviorMixin:
     def load_eye_traces(self, key):
-        r, center = (pupil.FittedContour.Ellipse() & key).fetch(
-            'major_r', 'center', order_by='frame_id ASC')
+        r, center = (pupil.FittedContour.Ellipse() & key).fetch('major_r', 'center', order_by='frame_id ASC')
         detectedFrames = ~np.isnan(r)
         xy = np.full((len(r), 2), np.nan)
         xy[detectedFrames, :] = np.vstack(center[detectedFrames])
@@ -604,8 +556,7 @@ class BehaviorMixin:
         return (stimulus.BehaviorSync() & key).fetch1('frame_times').squeeze()[0::ndepth]
 
     def load_treadmill_velocity(self, key):
-        t, v = (treadmill.Treadmill() & key).fetch1(
-            'treadmill_time', 'treadmill_vel')
+        t, v = (treadmill.Treadmill() & key).fetch1('treadmill_time', 'treadmill_vel')
         return v.squeeze(), t.squeeze()
 
 
@@ -633,30 +584,25 @@ class Eye(dj.Computed, FilterMixin, BehaviorMixin):
         behavior_clock = self.load_behavior_timing(scan_key)
 
         if len(frame_times) - len(behavior_clock) != 0:
-            assert abs(len(frame_times) - len(behavior_clock)
-                       ) < 2, 'Difference bigger than 2 time points'
+            assert abs(len(frame_times) - len(behavior_clock)) < 2, 'Difference bigger than 2 time points'
             l = min(len(frame_times), len(behavior_clock))
-            log.info(
-                'Frametimes and stimulus.BehaviorSync differ in length! Shortening it.', depth=1)
+            log.info('Frametimes and stimulus.BehaviorSync differ in length! Shortening it.', depth=1)
             frame_times = frame_times[:l]
             behavior_clock = behavior_clock[:l]
 
         fr2beh = NaNSpline(frame_times, behavior_clock, k=1, ext=3)
-        sampling_period = float((Preprocessing() & scan_key).proj(
-            period='1/behavior_lowpass').fetch1('period'))
+        sampling_period = float((Preprocessing() & scan_key).proj(period='1/behavior_lowpass').fetch1('period'))
         log.info('Downsampling eye signal to {}Hz'.format(1 / sampling_period))
         deye = np.nanmedian(np.diff(eye_time))
         h_eye = self.get_filter(sampling_period, deye, 'hamming', warning=True)
-        h_deye = self.get_filter(
-            sampling_period, deye, 'dhamming', warning=True)
+        h_deye = self.get_filter(sampling_period, deye, 'dhamming', warning=True)
         pupil_spline = NaNSpline(eye_time,
                                  np.convolve(radius, h_eye, mode='same'), k=1, ext=0)
 
         dpupil_spline = NaNSpline(eye_time,
                                   np.convolve(radius, h_deye, mode='same'), k=1, ext=0)
         center_spline = SplineCurve(eye_time,
-                                    np.vstack(
-                                        [np.convolve(coord, h_eye, mode='same') for coord in xy]),
+                                    np.vstack([np.convolve(coord, h_eye, mode='same') for coord in xy]),
                                     k=1, ext=0)
 
         flip_times, sample_times, trial_keys = \
@@ -669,12 +615,10 @@ class Eye(dj.Computed, FilterMixin, BehaviorMixin):
             pupil = pupil_spline(t)
             dpupil = dpupil_spline(t)
             center = center_spline(t)
-            nans = np.array([np.isnan(e).sum()
-                             for e in [pupil, dpupil, center]])
+            nans = np.array([np.isnan(e).sum() for e in [pupil, dpupil, center]])
             if np.any(nans > 0):
                 log.info('Found {} NaNs in one of the traces. Skipping trial {}'.format(np.max(nans),
-                                                                                        pformat(
-                                                                                            trial_key, indent=5),
+                                                                                        pformat(trial_key, indent=5),
                                                                                         ))
             else:
                 self.insert1(dict(scan_key, **trial_key,
@@ -682,6 +626,7 @@ class Eye(dj.Computed, FilterMixin, BehaviorMixin):
                                   dpupil=dpupil,
                                   center=center),
                              ignore_extra_fields=True)
+
 
 
 @schema
@@ -707,24 +652,18 @@ class Treadmill(dj.Computed, FilterMixin, BehaviorMixin):
         behavior_clock = self.load_behavior_timing(scan_key)
 
         if len(frame_times) - len(behavior_clock) != 0:
-            assert abs(len(frame_times) - len(behavior_clock)
-                       ) < 2, 'Difference bigger than 2 time points'
+            assert abs(len(frame_times) - len(behavior_clock)) < 2, 'Difference bigger than 2 time points'
             l = min(len(frame_times), len(behavior_clock))
-            log.info(
-                'Frametimes and stimulus.BehaviorSync differ in length! Shortening it.')
+            log.info('Frametimes and stimulus.BehaviorSync differ in length! Shortening it.')
             frame_times = frame_times[:l]
             behavior_clock = behavior_clock[:l]
 
         fr2beh = NaNSpline(frame_times, behavior_clock, k=1, ext=3)
-        sampling_period = float((Preprocessing() & scan_key).proj(
-            period='1/behavior_lowpass').fetch1('period'))
-        log.info('Downsampling treadmill signal to {}Hz'.format(
-            1 / sampling_period))
+        sampling_period = float((Preprocessing() & scan_key).proj(period='1/behavior_lowpass').fetch1('period'))
+        log.info('Downsampling treadmill signal to {}Hz'.format(1 / sampling_period))
 
-        h_tread = self.get_filter(sampling_period, np.nanmedian(
-            np.diff(treadmill_time)), 'hamming', warning=True)
-        treadmill_spline = NaNSpline(treadmill_time, np.abs(
-            np.convolve(v, h_tread, mode='same')), k=1, ext=0)
+        h_tread = self.get_filter(sampling_period, np.nanmedian(np.diff(treadmill_time)), 'hamming', warning=True)
+        treadmill_spline = NaNSpline(treadmill_time, np.abs(np.convolve(v, h_tread, mode='same')), k=1, ext=0)
 
         flip_times, sample_times, trial_keys = \
             (InputResponse.Input() * MovieClips() * stimulus.Trial() & scan_key).fetch('flip_times', 'sample_times',
@@ -736,8 +675,7 @@ class Treadmill(dj.Computed, FilterMixin, BehaviorMixin):
             nans = np.isnan(tm)
             if np.any(nans):
                 log.info('Found {} NaNs in one of the traces. Skipping trial {}'.format(nans.sum(),
-                                                                                        pformat(
-                                                                                            trial_key, indent=5),
+                                                                                        pformat(trial_key, indent=5),
                                                                                         ))
 
             else:
@@ -769,42 +707,36 @@ class MovieMultiDataset(dj.Manual):
         selection = [
             ('17358-5-3', [
                 dict(animal_id=17358, session=5, scan_idx=3, preproc_id=0, pipe_version=1, segmentation_method=3,
-                     spike_method=5)]),
+                     spike_method=5)]), # 0
             ('17797-8-5', [
                 dict(animal_id=17797, session=8, scan_idx=5, preproc_id=0, pipe_version=1, segmentation_method=3,
-                     spike_method=5)]),
+                     spike_method=5)]), # 1
             ('18142-6-3', [
                 dict(animal_id=18142, session=6, scan_idx=3, preproc_id=0, pipe_version=1, segmentation_method=3,
-                     spike_method=5)]),
+                     spike_method=5)]), # 2
             ('17358-5-3-triple', dj.AndList([
-                dict(animal_id=17358, session=5, scan_idx=3,
-                     pipe_version=1, segmentation_method=3, spike_method=5),
-                'preproc_id in (0,1,2)'])),
+                dict(animal_id=17358, session=5, scan_idx=3, pipe_version=1, segmentation_method=3, spike_method=5),
+                'preproc_id in (0,1,2)'])), # 3
             ('17797-8-5-triple', dj.AndList([
-                dict(animal_id=17797, session=8, scan_idx=5,
-                     pipe_version=1, segmentation_method=3, spike_method=5),
-                'preproc_id in (0,1,2)'])),
+                dict(animal_id=17797, session=8, scan_idx=5, pipe_version=1, segmentation_method=3, spike_method=5),
+                'preproc_id in (0,1,2)'])), # 4
             ('18142-6-3-triple', dj.AndList([
-                dict(animal_id=17358, session=5, scan_idx=3,
-                     pipe_version=1, segmentation_method=3, spike_method=5),
-                'preproc_id in (0,1,2)'])),
+                dict(animal_id=17358, session=5, scan_idx=3, pipe_version=1, segmentation_method=3, spike_method=5),
+                'preproc_id in (0,1,2)'])), # 5
             ('9771-1-1-triple', dj.AndList([
-                dict(animal_id=9771, session=1, scan_idx=1,
-                     pipe_version=1, segmentation_method=3, spike_method=5),
-                'preproc_id in (0,1,2)'])),
+                dict(animal_id=9771, session=1, scan_idx=1, pipe_version=1, segmentation_method=3, spike_method=5),
+                'preproc_id in (0,1,2)'])),  # 6
             ('9771-1-2-triple', dj.AndList([
-                dict(animal_id=9771, session=1, scan_idx=2,
-                     pipe_version=1, segmentation_method=3, spike_method=5),
-                'preproc_id in (0,1,2)'])),
+                dict(animal_id=9771, session=1, scan_idx=2, pipe_version=1, segmentation_method=3, spike_method=5),
+                'preproc_id in (0,1,2)'])),  # 7
             ('16314-3-1-triple', dj.AndList([
-                dict(animal_id=16314, session=3, scan_idx=1,
-                     pipe_version=1, segmentation_method=3, spike_method=5),
-                'preproc_id in (0,1,2)'])),
+                dict(animal_id=16314, session=3, scan_idx=1, pipe_version=1, segmentation_method=3, spike_method=5),
+                'preproc_id in (0,1,2)'])),  # 8
             ('16314-3-1', [
                 dict(animal_id=16314, session=3, scan_idx=1, preproc_id=0, pipe_version=1, segmentation_method=3,
-                     spike_method=5)]),
+                     spike_method=5)]),  # 9
             ('18142-platinum', [
-                dict(animal_id=18142, pipe_version=1, segmentation_method=3, spike_method=5)]),
+                dict(animal_id=18142, pipe_version=1, segmentation_method=3, spike_method=5)]),  # 10
             ('8973-golden', dj.AndList(['animal_id=8973 and session=1 and scan_idx in (2,3,4,5,6,9,11,12)',
                                         dict(pipe_version=1, segmentation_method=3, spike_method=5, preproc_id=0)])),
             ('18979-2-7-jiakun',
@@ -812,12 +744,6 @@ class MovieMultiDataset(dj.Manual):
             ('18799-3-14-jiakun',
              dict(animal_id=18799, session=3, scan_idx=14, pipe_version=1, segmentation_method=3, spike_method=5)),
             ('18142-all', dict(animal_id=18142, pipe_version=1, segmentation_method=3, spike_method=5, preproc_id=0)),
-            ('18979-2-7-jiakun',
-             dict(animal_id=18979, session=2, scan_idx=7, pipe_version=1, segmentation_method=3, spike_method=5)),
-            ('18799-3-14-jiakun',
-             dict(animal_id=18799, session=3, scan_idx=14, pipe_version=1, segmentation_method=3, spike_method=5)),
-            ('18142-all', dict(animal_id=18142, pipe_version=1,
-                               segmentation_method=3, spike_method=5, preproc_id=0)),
             ('18142-5-2',
              [dict(animal_id=18142, session=5, scan_idx=2, preproc_id=0, pipe_version=1,
                    segmentation_method=3, spike_method=5)]),
@@ -827,6 +753,12 @@ class MovieMultiDataset(dj.Manual):
             ('18142-6-5',
              [dict(animal_id=18142, session=6, scan_idx=5, preproc_id=0, pipe_version=1,
                    segmentation_method=3, spike_method=5)]),
+            ('17797-8-5-and-16314-3-1',
+             [dict(animal_id=17797, session=8, scan_idx=5, preproc_id=0, pipe_version=1, segmentation_method=3,
+                     spike_method=5),
+              dict(animal_id=16314, session=3, scan_idx=1, preproc_id=0, pipe_version=1, segmentation_method=3,
+                   spike_method=5)
+              ]),
         ]
         for group_id, (descr, key) in enumerate(selection):
             entry = dict(group_id=group_id, description=descr)
@@ -923,13 +855,10 @@ class MovieSet(H5SequenceSet):
     def rf_base(self, stats_source='all'):
         N, c, t, w, h = self.img_shape
         t = min(t, 150)
-
-        def mean(
-            dk): return self.statistics['{}/{}/mean'.format(dk, stats_source)].value
+        mean = lambda dk: self.statistics['{}/{}/mean'.format(dk, stats_source)].value
         d = dict(
             inputs=np.ones((1, c, t, w, h)) * np.array(mean('inputs')),
-            eye_position=np.ones((1, t, 1)) *
-            mean('eye_position')[None, None, :],
+            eye_position=np.ones((1, t, 1)) * mean('eye_position')[None, None, :],
             behavior=np.ones((1, t, 1)) * mean('behavior')[None, None, :],
             responses=np.ones((1, t, 1)) * mean('responses')[None, None, :]
         )
@@ -950,9 +879,7 @@ class MovieSet(H5SequenceSet):
 
         """
         N, c, _, w, h = self.img_shape
-
-        def stat(
-            dk, what): return self.statistics['{}/{}/{}'.format(dk, stats_source, what)].value
+        stat = lambda dk, what: self.statistics['{}/{}/{}'.format(dk, stats_source, what)].value
         mu, s = stat('inputs', 'mean'), stat('inputs', 'std')
         h_filt = np.float64([
             [1 / 16, 1 / 8, 1 / 16],
@@ -963,10 +890,8 @@ class MovieSet(H5SequenceSet):
                                 for _ in range(m * t * c)]).reshape((m, c, t, w, h)) * s + mu
 
         mean_beh = np.ones((m, t, 1)) * stat('behavior', 'mean')[None, None, :]
-        mean_eye = np.ones((m, t, 1)) * \
-            stat('eye_position', 'mean')[None, None, :]
-        mean_resp = np.ones((m, t, 1)) * \
-            stat('responses', 'mean')[None, None, :]
+        mean_eye = np.ones((m, t, 1)) * stat('eye_position', 'mean')[None, None, :]
+        mean_resp = np.ones((m, t, 1)) * stat('responses', 'mean')[None, None, :]
 
         d = dict(
             inputs=noise_input.astype(np.float32),
@@ -979,8 +904,8 @@ class MovieSet(H5SequenceSet):
 
     def __getitem__(self, item):
         x = self.data_point(*(np.array(self._fid[g][
-            str(item if g not in self.shuffle_dims else self.shuffle_dims[g][item])])
-            for g in self.data_groups))
+                                           str(item if g not in self.shuffle_dims else self.shuffle_dims[g][item])])
+                              for g in self.data_groups))
         for tr in self.transforms:
             x = tr(x)
         return x
@@ -991,8 +916,7 @@ class MovieSet(H5SequenceSet):
                + (
                    ('\n\t[Shuffled Features: ' + ', '.join(self.shuffle_dims) + ']') if len(
                        self.shuffle_dims) > 0 else '') + \
-               ('\n\t[Stats source: {}]'.format(self.stats_source)
-                if self.stats_source is not None else '')
+               ('\n\t[Stats source: {}]'.format(self.stats_source) if self.stats_source is not None else '')
 
 
 schema.spawn_missing_classes()
