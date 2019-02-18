@@ -9,12 +9,11 @@ from torch.utils.data import DataLoader
 from torch.utils.data.sampler import SubsetRandomSampler
 
 from .data_schemas import MovieMultiDataset
-from .schema_bridge import stimulus, experiment, anatomy
+from .schema_bridge import stimulus
 from .transforms import Subsample, Normalizer, ToTensor, Subsequence, NormalizeInput, Resize
 from .. import logger as log
 from ..utils.config import ConfigBase, fixed_seed
 from ..utils.sampler import RepeatSubsetSequentialSampler, BalancedSubsetSampler, RepeatSubsetRandomSampler
-
 
 schema = dj.schema('neurodata_movie_configs', locals())
 
@@ -24,7 +23,7 @@ class DataLoaderTFirst(DataLoader):
         for x in super().__iter__():
             yield list(
                 map(lambda xf: xf[0].permute(2, 0, 1, 3, 4)
-                    if xf[1] == 'inputs' else xf[0].permute(1, 0, 2),
+                if xf[1] == 'inputs' else xf[0].permute(1, 0, 2),
                     zip(x, self.dataset.data_point._fields)))
 
 
@@ -40,13 +39,14 @@ class StimulusTypeMixin:
                 assert ex in dataset.data_groups, '{} not in data_groups'.format(
                     ex)
             transforms = []
-            seq_len = key.pop('seq_len', False)
-            if seq_len is not False:
-                if seq_len is not None:
-                    transforms.append(Subsequence(seq_len))
+            if 'seq_len' in key and key['seq_len'] is not None:
+                transforms.append(Subsequence(key['seq_len']))
+            elif tier == 'train' and 'train_seq_len' in key:
+                transforms.append(Subsequence(key['train_seq_len']))
             else:
-                if tier == 'train':
-                    transforms.append(Subsequence(key['train_seq_len']))
+                log.warning('No subsquence transform will be added to the dataset!')
+
+
             if normalize:
                 log.info('Using normalization={}'.format(normalize))
                 transforms.append(Normalizer(
@@ -83,8 +83,8 @@ class StimulusTypeMixin:
                 tmp &= np.isin(dataset.condition_hashes, rhashes)
                 ch = dataset.condition_hashes[tmp]
                 rel = stimulus.Clip * \
-                    stimulus.Movie & 'condition_hash in ("{}")'.format(
-                        '","'.join(ch))
+                      stimulus.Movie & 'condition_hash in ("{}")'.format(
+                    '","'.join(ch))
                 log.info('\tRestricted movie classes are: {}'.format(
                     ', '.join(np.unique(rel.fetch('movie_class')))))
 
@@ -131,7 +131,7 @@ class StimulusTypeMixin:
             log.info('Using [' + ",".join(stimulus_types) +
                      '] as stimulus type for all datasets')
             stimulus_types = (
-                len(datasets) // len(stimulus_types)) * stimulus_types
+                                     len(datasets) // len(stimulus_types)) * stimulus_types
         else:
             assert len(stimulus_types) == len(datasets), \
                 'Number of requested types does not match number of datasets. You need to choose a different group'
@@ -231,7 +231,7 @@ class AreaLayerMixin(StimulusTypeMixin):
             layers = dataset.neurons.layer
             areas = dataset.neurons.area
             idx = np.where((layers == key['layer']) & (
-                areas == key['brain_area']))[0]
+                    areas == key['brain_area']))[0]
             dataset.transforms.insert(-1, Subsample(idx))
         return datasets, loaders
 
@@ -288,8 +288,8 @@ class DataConfig(ConfigBase, dj.Lookup):
         def content(self):
             for p in product(['all'],
                              ['stimulus.Clip', '~stimulus.Clip',
-                                 'stimulus.Clip(unreal)', 'stimulus.Clip(~unreal)',
-                                 'stimulus.Clip|~stimulus.Clip'],
+                              'stimulus.Clip(unreal)', 'stimulus.Clip(~unreal)',
+                              'stimulus.Clip|~stimulus.Clip'],
                              ['inputs,responses'],
                              [True],
                              [30 * 5],
@@ -359,8 +359,11 @@ class DataConfig(ConfigBase, dj.Lookup):
                              [100]):
                 yield dict(zip(self.heading.dependent_attributes, p))
 
-        def load_data(self, key, tier=None, batch_size=1, seq_len=None,
-                      Sampler=None, t_first=False, cuda=False):
+        def load_data(self, key, tier=None, batch_size=1, seq_len=None, Sampler=None, t_first=False, cuda=False,
+                      **kwargs):
+            log.info('Ignoring {} when loading {}'.format(
+                pformat(kwargs, indent=20), self.__class__.__name__))
+
             from .stats import Oracle
             key['seq_len'] = seq_len
             datasets, loaders = super().load_data(
@@ -424,24 +427,26 @@ class DataConfig(ConfigBase, dj.Lookup):
                 yield dict(zip(self.heading.dependent_attributes, p))
 
         def load_data(self, key, tier=None, batch_size=1, seq_len=None,
-                      Sampler=None, t_first=False, cuda=False, scale=1.0, 
-                      normalize_input=False, repeat=1):
+                      Sampler=None, t_first=False, cuda=False, scale=1.0,
+                      normalize_input=False, **kwargs):
+            log.info('Ignoring {} when loading {}'.format(
+                pformat(kwargs, indent=20), self.__class__.__name__))
+
             from .stats import BootstrapOracleTTest
             key['seq_len'] = seq_len
             assert tier in [None, 'train', 'validation', 'test']
             datasets, loaders = super().load_data(
                 key, tier=tier, batch_size=batch_size, Sampler=Sampler,
-                t_first=t_first, cuda=cuda, repeat=repeat)
-
+                t_first=t_first, cuda=cuda)
             for rok, dataset in datasets.items():
                 member_key = (MovieMultiDataset.Member() & key &
                               dict(name=rok)).fetch1(dj.key)
                 all_units, all_pvals = (
-                    BootstrapOracleTTest.UnitPValue & member_key).fetch(
-                        'unit_id', 'unit_p_value')
+                        BootstrapOracleTTest.UnitPValue & member_key).fetch(
+                    'unit_id', 'unit_p_value')
                 assert len(all_pvals) > 0, \
                     'You forgot to populate BootstrapOracleTTest for group_id={}'.format(
-                    member_key['group_id'])
+                        member_key['group_id'])
                 units_mask = np.isin(all_units, dataset.neurons.unit_ids)
                 units, pvals = all_units[units_mask], all_pvals[units_mask]
                 assert np.all(
@@ -523,7 +528,7 @@ class DataConfig(ConfigBase, dj.Lookup):
                     layers = dataset.neurons.layer
                     areas = dataset.neurons.area
                     idx = np.where((layers == key['layer']) & (
-                        areas == key['brain_area']))[0]
+                            areas == key['brain_area']))[0]
                     assert len(
                         idx) >= key['neurons'], 'number of requested neurons exceeds available neurons'
                     selection = np.random.permutation(
@@ -548,7 +553,8 @@ class DataConfig(ConfigBase, dj.Lookup):
                         gap = durations[selection].sum() - key['seconds']
                         if gap != 0:
                             log.warning(
-                                '{gap}s gap between requested stimulus length and actual stimulus length.'.format(gap=gap))
+                                '{gap}s gap between requested stimulus length and actual stimulus length.'.format(
+                                    gap=gap))
                         log.info('Using {} trials'.format(
                             (total_duration <= key['seconds'])).sum())
                         log.info(
