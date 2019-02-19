@@ -31,8 +31,7 @@ class Normalizer(DataTransform, Invertible):
 
         exclude = self.exclude = exclude or []
 
-        self._inputs_std = data.statistics['inputs/{}/mean'.format(
-            stats_source)].value
+        self._inputs_std = data.statistics['inputs/{}/mean'.format(stats_source)][()]
 
         s = np.array(data.statistics['responses/{}/std'.format(stats_source)])
 
