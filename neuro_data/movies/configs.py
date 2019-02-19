@@ -10,7 +10,7 @@ from torch.utils.data.sampler import SubsetRandomSampler
 
 from .data_schemas import MovieMultiDataset
 from .schema_bridge import stimulus
-from .transforms import Subsample, Normalizer, ToTensor, Subsequence, NormalizeInput, Resize
+from .transforms import Subsample, Normalizer, ToTensor, Subsequence, ScaleInput, Resize
 from .. import logger as log
 from ..utils.config import ConfigBase, fixed_seed
 from ..utils.sampler import RepeatSubsetSequentialSampler, BalancedSubsetSampler, RepeatSubsetRandomSampler
@@ -427,8 +427,7 @@ class DataConfig(ConfigBase, dj.Lookup):
                 yield dict(zip(self.heading.dependent_attributes, p))
 
         def load_data(self, key, tier=None, batch_size=1, seq_len=None,
-                      Sampler=None, t_first=False, cuda=False, scale=1.0,
-                      normalize_input=False, **kwargs):
+                      Sampler=None, t_first=False, cuda=False, scale_input=False, **kwargs):
             log.info('Ignoring {} when loading {}'.format(
                 pformat(kwargs, indent=20), self.__class__.__name__))
 
@@ -457,12 +456,9 @@ class DataConfig(ConfigBase, dj.Lookup):
                     selection.sum(), pval_thresh))
                 dataset.transforms.insert(
                     -1, Subsample(np.where(selection)[0]))
-                if scale != 1.0:
-                    resize_shape = np.round(
-                        np.array(dataset.img_shape[-2:]) * scale).astype(np.int)
-                    dataset.transforms.insert(-1, Resize(resize_shape))
-                if normalize_input:
-                    dataset.transforms.insert(-1, NormalizeInput())
+                if scale_input:
+                    log.info('Scaling Input to [0, 1]')
+                    dataset.transforms.insert(-1, ScaleInput())
                 assert np.all(dataset.neurons.unit_ids ==
                               units[selection]), 'Units are inconsistent'
             return datasets, loaders

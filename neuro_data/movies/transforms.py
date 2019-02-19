@@ -130,7 +130,7 @@ class ToTensor(DataTransform, Invertible):
                              if self.cuda else torch.from_numpy(elem.astype(np.float32)) for elem in x])
 
 
-class NormalizeInput(DataTransform):
+class ScaleInput(DataTransform):
 
     def __call__(self, x):
         return x.__class__(
