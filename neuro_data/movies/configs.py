@@ -427,7 +427,7 @@ class DataConfig(ConfigBase, dj.Lookup):
                 yield dict(zip(self.heading.dependent_attributes, p))
 
         def load_data(self, key, tier=None, batch_size=1, seq_len=None,
-                      Sampler=None, t_first=False, cuda=False, scale_input=False, **kwargs):
+                      Sampler=None, t_first=False, cuda=False, scale_input=False, repeat=1, **kwargs):
             log.info('Ignoring {} when loading {}'.format(
                 pformat(kwargs, indent=20), self.__class__.__name__))
 
@@ -436,7 +436,7 @@ class DataConfig(ConfigBase, dj.Lookup):
             assert tier in [None, 'train', 'validation', 'test']
             datasets, loaders = super().load_data(
                 key, tier=tier, batch_size=batch_size, Sampler=Sampler,
-                t_first=t_first, cuda=cuda)
+                t_first=t_first, cuda=cuda, repeat=repeat)
             for rok, dataset in datasets.items():
                 member_key = (MovieMultiDataset.Member() & key &
                               dict(name=rok)).fetch1(dj.key)
