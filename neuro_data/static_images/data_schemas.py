@@ -15,14 +15,51 @@ dj.config['external-data'] = dict(
     protocol='file',
     location='/external/')
 
+# Day 1: 2-24 ImageNet - used to generate MEIs, 3-7 Repeat ImageNet
+# Day 2: 4-19 MEIs - incorrect depths, 4-29 Repeat ImageNet - incorrect depths
+# Day 3: 5-26 MEIs,  6-1 Repeat ImageNet
+# Day 4: 7-23 MEIs, 7-29 Repeat ImageNet
 STATIC = ['(animal_id=11521 and session=7 and scan_idx in (1,2))',
           '(animal_id=16157 and session=5 and scan_idx in (5,6))',
-          '(animal_id=11677 and session=2 and scan_idx=1)'
+          '(animal_id=11677 and session=2 and scan_idx=1)',
+          '(animal_id=16312 and session=3 and scan_idx=20)',
+          '(animal_id=18765 and session=4 and scan_idx=6)',
+          '(animal_id=18765 and session=7 and scan_idx=17)',
           ]
+
+MEI_STATIC = [
+          '(animal_id=20505 and session=2 and scan_idx=24)', # First loop day 1 (Tue) source ImageNet
+          '(animal_id=20505 and session=3 and scan_idx=7)',  # First loop day 1 (Tue) repeat ImageNet repeat
+          '(animal_id=20505 and session=5 and scan_idx=26)', # First loop day 3 (Thu) MEI
+          '(animal_id=20505 and session=6 and scan_idx=1)',  # First loop day 3 (Thu) repeat ImageNet
+          '(animal_id=20505 and session=7 and scan_idx=23)', # First loop day 4 (Fri) MEI
+          '(animal_id=20505 and session=7 and scan_idx=29)', # First loop day 4 (Fri) repeat ImageNet
+          '(animal_id=20457 and session=5 and scan_idx=9)',  # Second loop day 1 (Thu) source ImageNet
+          '(animal_id=20457 and session=5 and scan_idx=17)', # Second loop day 1 (Thu) repeat ImageNet
+          '(animal_id=20457 and session=5 and scan_idx=27)', # Second loop day 1 (Thu) Monet
+          '(animal_id=20457 and session=7 and scan_idx=4)',  # Second loop day 2 (Fri) MEI,
+          '(animal_id=20457 and session=7 and scan_idx=10)', # Second loop day 2 (Fri) repeat ImageNet,
+          '(animal_id=20457 and session=7 and scan_idx=16)', # Second loop day 2 (Fri) Monet,
+          '(animal_id=20457 and session=8 and scan_idx=9)',  # Second loop day 3 (Mon) MEI,
+          '(animal_id=20457 and session=8 and scan_idx=12)', # Second loop day 3 (Mon) repeat ImageNet
+          '(animal_id=20457 and session=8 and scan_idx=22)', # Second loop day 3 (Mon) Monet
+          '(animal_id=20505 and session=10 and scan_idx=14)',  # Third loop day 1 (Tue) source ImageNet,
+          '(animal_id=20505 and session=10 and scan_idx=19)',  # Third loop day 1 (Tue) repeat ImageNet,
+          '(animal_id=20505 and session=11 and scan_idx=7)',   # Third loop day 2 (Wed) MEI - BAD: mouse not awake
+          '(animal_id=20505 and session=11 and scan_idx=16)',  # Third loop day 2 (Wed) repeat ImageNet
+          '(animal_id=20505 and session=12 and scan_idx=16)',  # Third loop day 3 (Thu) MEI
+          '(animal_id=20505 and session=12 and scan_idx=29)',  # Third loop day 3 (Thu) repeat ImageNet
+          '(animal_id=20505 and session=14 and scan_idx=4)',   # Third loop day 4 (Thu) MEI
+          '(animal_id=20505 and session=14 and scan_idx=33)',  # Third loop day 4 (Thu) repeat ImageNet'
+    ]
+
+STATIC = STATIC + MEI_STATIC
+
+# set of attributes that uniquely identifies the frame content
 UNIQUE_FRAME = {
     'stimulus.Frame': ('image_id', 'image_class'),
-    'stimulus.MonetFrame': ('rng_seed','orientation'),
-    'stimulus.TrippyFrame': ('rng_seed','orientation'),
+    'stimulus.MonetFrame': ('rng_seed', 'orientation'),
+    'stimulus.TrippyFrame': ('rng_seed',),
 }
 
 experiment = dj.create_virtual_module('experiment', 'pipeline_experiment')
@@ -38,7 +75,7 @@ anatomy = dj.create_virtual_module('anatomy', 'pipeline_anatomy')
 mesonet = dj.create_virtual_module('mesonet', 'cortex_ex_machina_mesonet_data')
 treadmill = dj.create_virtual_module('treadmill', 'pipeline_treadmill')
 
-schema = dj.schema('neurodata_static', locals())
+schema = dj.schema('neurodata_static')
 
 extra_info_types = {
     'condition_hash':'S',
@@ -88,19 +125,19 @@ class StaticScan(dj.Computed):
         -> fuse.ScanSet.Unit
         """
 
-    key_source = meso.ScanDone() & STATIC & 'spike_method=5 and segmentation_method=3'
+    key_source = fuse.ScanDone() & STATIC & 'spike_method=5 and segmentation_method=6'
 
     @staticmethod
     def complete_key(key):
         return dict((dj.U('segmentation_method', 'pipe_version') \
                      & (meso.ScanSet.Unit() & key)).fetch1(dj.key), **key)
 
-    def _make_tuples(self, key):
+    def make(self, key):
         self.insert(fuse.ScanDone() & key, ignore_extra_fields=True)
         pipe = (fuse.ScanDone() & key).fetch1('pipe')
         pipe = dj.create_virtual_module(pipe, 'pipeline_' + pipe)
         self.Unit().insert(fuse.ScanDone * pipe.ScanSet.Unit * pipe.MaskClassification.Type & key
-                           & dict(pipe_version=1, segmentation_method=3, spike_method=5, type='soma'),
+                           & dict(pipe_version=1, segmentation_method=6, spike_method=5, type='soma'),
                            ignore_extra_fields=True)
 
 
@@ -115,6 +152,15 @@ class Tier(dj.Lookup):
     def contents(self):
         yield from zip(["train", "test", "validation"])
 
+
+@schema
+class ExcludedTrial(dj.Manual):
+    definition = """
+    # trials to be excluded from analysis
+    -> stimulus.Trial
+    ---
+    exclusion_comment='': varchar(64)   # reasons for exclusion
+    """
 
 @schema
 class ConditionTier(dj.Computed):
@@ -134,6 +180,7 @@ class ConditionTier(dj.Computed):
 
     @property
     def key_source(self):
+        # all static scan with at least on recorded trial
         return StaticScan() & stimulus.Trial()
 
     def check_train_test_split(self, frames, cond):
@@ -176,17 +223,29 @@ class ConditionTier(dj.Computed):
     def make(self, key):
         log.info(80 * '-')
         log.info('Processing ' + pformat(key))
+        # count the number of distinct conditions presented for each one of three stimulus types:
+        # "stimulus.Frame","stimulus.MonetFrame", "stimulus.TrippyFrame"
         conditions = dj.U('stimulus_type').aggr(stimulus.Condition() & (stimulus.Trial() & key),
                                                 count='count(*)') \
                      & 'stimulus_type in ("stimulus.Frame","stimulus.MonetFrame", "stimulus.TrippyFrame")'
         for cond in conditions.fetch(as_dict=True):
             # hack for compatibility with previous datasets
             if cond['stimulus_type'] == 'stimulus.Frame':
-                log.info('Inserting assignment from Mesonet')
-                assignment = dj.U('tier', 'image_id') & (stimulus.Frame * mesonet.MesonetSplit.proj(tier='type'))
 
-                self.insert(StaticScan * stimulus.Frame * assignment & (stimulus.Trial & key),
+                # deal with ImageNet frames first
+                log.info('Inserting assignment from Mesonet')
+                assignment = dj.U('tier', 'image_id') & (stimulus.Frame * mesonet.MesonetSplit.proj(tier='type') & 'image_class = "imagenet"')
+
+                targets = StaticScan * stimulus.Frame * assignment & (stimulus.Trial & key) & 'image_class = "imagenet"'
+                print('Inserting {} imagenet conditions!'.format(len(targets)))
+                self.insert(targets,
                             ignore_extra_fields=True)
+
+                # deal with MEI images, assigning tier test for all images
+                assignment = (stimulus.Frame() & 'image_class in ("cnn_mei", "lin_rf", "multi_cnn_mei", "multi_lin_rf")').proj(tier='"train"')
+                self.insert(StaticScan * stimulus.Frame * assignment & (stimulus.Trial & key), ignore_extra_fields=True)
+
+                # make sure that all frames were assigned
                 remaining = (stimulus.Trial * stimulus.Frame & key) - self
                 assert len(remaining) == 0, 'There are still unprocessed Frames'
                 continue
@@ -393,9 +452,16 @@ class InputResponse(dj.Computed, FilterMixin):
         log.info('Sampling neural responses at {}s intervals'.format(duration))
 
         trace_spline, trace_keys, ftmin, ftmax = self.get_trace_spline(scan_key, duration)
-        flip_times, trial_keys = (Frame * stimulus.Trial & scan_key).fetch('flip_times', dj.key,
+        # exclude trials marked in ExcludedTrial
+        log.info('Excluding {} trials based on ExcludedTrial'.format(len(ExcludedTrial() & scan_key)))
+        flip_times, trial_keys = (Frame * (stimulus.Trial - ExcludedTrial) & scan_key).fetch('flip_times', dj.key,
                                                                            order_by='condition_hash')
         flip_times = [ft.squeeze() for ft in flip_times]
+
+        # If no Frames are present, skip this scan
+        if len(flip_times) == 0:
+            log.warning('No static frames were present to be processed for {}'.format(scan_key))
+            return
 
         valid = np.array([ft.min() >= ftmin and ft.max() <= ftmax for ft in flip_times], dtype=bool)
         if not np.all(valid):
@@ -422,9 +488,11 @@ class InputResponse(dj.Computed, FilterMixin):
         # get data relation
         include_behavior = bool(Eye.proj() * Treadmill.proj() & key)
 
-        # make sure that including areas does not decreas number of neurons
-        assert len(pipe.ScanSet.UnitInfo() * experiment.Layer() * anatomy.AreaMembership() & key) == \
-               len(pipe.ScanSet.UnitInfo() * experiment.Layer() & key), "AreaMembership decreases number of neurons"
+        assert include_behavior, 'Behavior data is missing!'
+
+        # make sure that including areas and layers does not decreas number of neurons
+        assert len(pipe.ScanSet.UnitInfo() * experiment.Layer() * anatomy.AreaMembership() * anatomy.LayerMembership() & key) == \
+               len(pipe.ScanSet.UnitInfo() & key), "AreaMembership decreases number of neurons"
 
         responses = (self.ResponseBlock & key).fetch1('responses')
         trials = Frame() * ConditionTier() * self.Input() * stimulus.Condition().proj('stimulus_type') & key
@@ -440,6 +508,8 @@ class InputResponse(dj.Computed, FilterMixin):
         # --- extract infomation for each trial
         extra_info = pd.DataFrame({'condition_hash':hashes, 'trial_idx':trial_idxs})
         dfs = OrderedDict()
+
+        # add information about each stimulus
         for t in map(lambda x: x.split('.')[1], np.unique(types)):
             stim = getattr(stimulus, t)
             rel = stim() * stimulus.Trial() & key
@@ -630,7 +700,7 @@ class Eye(dj.Computed, FilterMixin, BehaviorMixin):
     def key_source(self):
         return InputResponse & pupil.FittedContour & stimulus.BehaviorSync
 
-    def _make_tuples(self, scan_key):
+    def make(self, scan_key):
         log.info('Populating '+ pformat(scan_key))
         radius, xy, eye_time = self.load_eye_traces(scan_key)
         frame_times = self.load_frame_times(scan_key)
@@ -666,6 +736,11 @@ class Eye(dj.Computed, FilterMixin, BehaviorMixin):
 
         flip_times = [ft.squeeze() for ft in flip_times]
 
+        # If no Frames are present, skip this scan
+        if len(flip_times) == 0:
+            log.warning('No static frames were present to be processed for {}'.format(scan_key))
+            return
+
         stimulus_onset = InputResponse.stimulus_onset(flip_times, duration)
         t = fr2beh(stimulus_onset + sample_point)
         pupil = pupil_spline(t)
@@ -698,7 +773,7 @@ class Treadmill(dj.Computed, FilterMixin, BehaviorMixin):
         rel = InputResponse
         return rel & treadmill.Treadmill() & stimulus.BehaviorSync()
 
-    def _make_tuples(self, scan_key):
+    def make(self, scan_key):
         log.info('Populating\n' + pformat(scan_key))
         v, treadmill_time = self.load_treadmill_velocity(scan_key)
         frame_times = self.load_frame_times(scan_key)
@@ -724,6 +799,11 @@ class Treadmill(dj.Computed, FilterMixin, BehaviorMixin):
                                                                                      order_by='row_id ASC')
 
         flip_times = [ft.squeeze() for ft in flip_times]
+
+        # If no Frames are present, skip this scan
+        if len(flip_times) == 0:
+            log.warning('No static frames were present to be processed for {}'.format(scan_key))
+            return
 
         stimulus_onset = InputResponse.stimulus_onset(flip_times, duration)
         tm = treadmill_spline(fr2beh(stimulus_onset + sample_point))
@@ -755,6 +835,8 @@ class StaticMultiDataset(dj.Manual):
 
     _template = 'group{group_id:03d}-{animal_id}-{session}-{scan_idx}-{preproc_id}'
 
+
+
     def fill(self):
         selection = [
             ('11521-7-1', dict(animal_id=11521, session=7, scan_idx=1, preproc_id=0)),
@@ -765,9 +847,20 @@ class StaticMultiDataset(dj.Manual):
             ('16312-3-20', dict(animal_id=16312, session=3, scan_idx=20, preproc_id=0)),
             ('11521-7-1-scaled', dict(animal_id=11521, session=7, scan_idx=1, preproc_id=2)),
             ('11521-7-2-scaled', dict(animal_id=11521, session=7, scan_idx=2, preproc_id=2)),
-            ('16312-3-20', dict(animal_id=16312, session=3, scan_idx=20, preproc_id=0)),
+            ('18765-4-6', dict(animal_id=18765, session=4, scan_idx=6, preproc_id=0)),
             ('16157-5', [dict(animal_id=16157, session=5, scan_idx=5, preproc_id=0),
                          dict(animal_id=16157, session=5, scan_idx=6, preproc_id=0)]),
+            ('20505-2-24', dict(animal_id=20505, session=2, scan_idx=24, preproc_id=0)),
+            ('20505-3-7', dict(animal_id=20505, session=3, scan_idx=7, preproc_id=0)),
+            ('20505-6-1', dict(animal_id=20505, session=6, scan_idx=1, preproc_id=0)),
+            ('20505-7-29', dict(animal_id=20505, session=7, scan_idx=29, preproc_id=0)),
+            ('20457-5-9', dict(animal_id=20457, session=5, scan_idx=9, preproc_id=0)),
+            ('20505-10-14', dict(animal_id=20505, session=10, scan_idx=14, preproc_id=0)),
+            ('20457-7-10', dict(animal_id=20457, session=7, scan_idx=10, preproc_id=0)),
+            ('20457-8-12', dict(animal_id=20457, session=8, scan_idx=12, preproc_id=0)),
+            ('20505-12-29', dict(animal_id=20505, session=12, scan_idx=29, preproc_id=0)),
+            ('20505-14-33', dict(animal_id=20505, session=14, scan_idx=33, preproc_id=0)),
+            ('20505-11-16', dict(animal_id=20505, session=11, scan_idx=16, preproc_id=0)),
         ]
         for group_id, (descr, key) in enumerate(selection):
             entry = dict(group_id=group_id, description=descr)

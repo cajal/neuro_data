@@ -23,6 +23,15 @@ def list_hash(values):
         hashed.update(str(v).encode())
     return hashed.hexdigest()
 
+def key_hash(key):
+    """
+    32-byte hash used for lookup of primary keys of jobs
+    """
+    hashed = hashlib.md5()
+    for k, v in sorted(key.items()):
+        hashed.update(str(v).encode())
+    return hashed.hexdigest()
+
 
 from scipy.interpolate import InterpolatedUnivariateSpline, interp1d
 import numpy as np
@@ -107,14 +116,7 @@ def merge(*args, **kwargs):
     return ret
 
 
-def key_hash(key):
-    """
-    32-byte hash used for lookup of primary keys of jobs
-    """
-    hashed = hashlib.md5()
-    for k, v in sorted(key.items()):
-        hashed.update(str(v).encode())
-    return hashed.hexdigest()
+
 
 
 def fill_nans(x, preserve_gap=None):
@@ -409,7 +411,7 @@ def recursively_load_dict_contents_from_group(h5file, path):
             ans[key] = item.value
         elif isinstance(item, h5py._hl.group.Group):
             if '_iterable' in item.attrs and item.attrs['_iterable']:
-                ans[key] = [item[str(i)] for i in range(len(item))]
+                ans[key] = [item[str(i)].value for i in range(len(item))]
             else:
                 ans[key] = recursively_load_dict_contents_from_group(h5file, path + key + '/')
     return ans
