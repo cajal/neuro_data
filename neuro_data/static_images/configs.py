@@ -195,13 +195,15 @@ class AreaLayerRawMixin(StimulusTypeMixin):
                                               stimulus_types=stimulus_types,
                                               Sampler=Sampler)
 
-        log.info(
-            'Subsampling to layer "{layer}" and area "{brain_area}"'.format(**key))
+        log.info('Subsampling to layer "{layer}" and area "{brain_area}"'.format(**key))
         for readout_key, dataset in datasets.items():
             layers = dataset.neurons.layer
             areas = dataset.neurons.area
-            idx = np.where((layers == key['layer']) & (
-                areas == key['brain_area']))[0]
+
+            layer_idx = (layers == key['layer'])
+            area_idx = (areas != 'unknown' if key['brain_area'] == 'all' else
+                        areas == key['brain_area'])
+            idx = np.where(layer_idx & area_idx)[0]
             if len(idx) == 0:
                 log.warning('Empty set of neurons. Deleting this key')
                 del datasets[readout_key]
@@ -316,7 +318,7 @@ class DataConfig(ConfigBase, dj.Lookup):
         normalize               : bool          # whether to use a normalizer or not
         normalize_per_image     : bool          # whether to normalize each input separately
         -> experiment.Layer
-        -> anatomy.Area
+        brain_area              : varchar(256)  #-> anatomy.Area
         """
 
         def describe(self, key):
@@ -331,7 +333,7 @@ class DataConfig(ConfigBase, dj.Lookup):
                              [True],
                              [True, False],
                              ['L4', 'L2/3'],
-                             ['V1', 'LM']):
+                             ['V1', 'LM', 'all']):
                 yield dict(zip(self.heading.dependent_attributes, p))
 
     ############ Below are data configs that were using the buggy normalizer #################
