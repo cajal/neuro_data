@@ -28,29 +28,32 @@ STATIC = ['(animal_id=11521 and session=7 and scan_idx in (1,2))',
           ]
 
 MEI_STATIC = [
-          '(animal_id=20505 and session=2 and scan_idx=24)', # First loop day 1 (Tue) source ImageNet
-          '(animal_id=20505 and session=3 and scan_idx=7)',  # First loop day 1 (Tue) repeat ImageNet repeat
-          '(animal_id=20505 and session=5 and scan_idx=26)', # First loop day 3 (Thu) MEI
-          '(animal_id=20505 and session=6 and scan_idx=1)',  # First loop day 3 (Thu) repeat ImageNet
-          '(animal_id=20505 and session=7 and scan_idx=23)', # First loop day 4 (Fri) MEI
-          '(animal_id=20505 and session=7 and scan_idx=29)', # First loop day 4 (Fri) repeat ImageNet
-          '(animal_id=20457 and session=5 and scan_idx=9)',  # Second loop day 1 (Thu) source ImageNet
-          '(animal_id=20457 and session=5 and scan_idx=17)', # Second loop day 1 (Thu) repeat ImageNet
-          '(animal_id=20457 and session=5 and scan_idx=27)', # Second loop day 1 (Thu) Monet
-          '(animal_id=20457 and session=7 and scan_idx=4)',  # Second loop day 2 (Fri) MEI,
-          '(animal_id=20457 and session=7 and scan_idx=10)', # Second loop day 2 (Fri) repeat ImageNet,
-          '(animal_id=20457 and session=7 and scan_idx=16)', # Second loop day 2 (Fri) Monet,
-          '(animal_id=20457 and session=8 and scan_idx=9)',  # Second loop day 3 (Mon) MEI,
-          '(animal_id=20457 and session=8 and scan_idx=12)', # Second loop day 3 (Mon) repeat ImageNet
-          '(animal_id=20457 and session=8 and scan_idx=22)', # Second loop day 3 (Mon) Monet
-          '(animal_id=20505 and session=10 and scan_idx=14)',  # Third loop day 1 (Tue) source ImageNet,
-          '(animal_id=20505 and session=10 and scan_idx=19)',  # Third loop day 1 (Tue) repeat ImageNet,
-          '(animal_id=20505 and session=11 and scan_idx=7)',   # Third loop day 2 (Wed) MEI - BAD: mouse not awake
-          '(animal_id=20505 and session=11 and scan_idx=16)',  # Third loop day 2 (Wed) repeat ImageNet
-          '(animal_id=20505 and session=12 and scan_idx=16)',  # Third loop day 3 (Thu) MEI
-          '(animal_id=20505 and session=12 and scan_idx=29)',  # Third loop day 3 (Thu) repeat ImageNet
-          '(animal_id=20505 and session=14 and scan_idx=4)',   # Third loop day 4 (Thu) MEI
-          '(animal_id=20505 and session=14 and scan_idx=33)',  # Third loop day 4 (Thu) repeat ImageNet'
+          '(animal_id=20505 and session=2 and scan_idx=24)', # loop 0 day 1 (Tue) source ImageNet
+          '(animal_id=20505 and session=3 and scan_idx=7)',  # loop 0 day 1 (Tue) repeat ImageNet repeat
+          '(animal_id=20505 and session=5 and scan_idx=26)', # loop 0 day 3 (Thu) MEI
+          '(animal_id=20505 and session=6 and scan_idx=1)',  # loop 0 day 3 (Thu) repeat ImageNet
+          '(animal_id=20505 and session=7 and scan_idx=23)', # loop 0 day 4 (Fri) MEI
+          '(animal_id=20505 and session=7 and scan_idx=29)', # loop 0 day 4 (Fri) repeat ImageNet
+          '(animal_id=20457 and session=5 and scan_idx=9)',  # loop 1 day 1 (Thu) source ImageNet
+          '(animal_id=20457 and session=5 and scan_idx=17)', # loop 1 day 1 (Thu) repeat ImageNet
+          '(animal_id=20457 and session=5 and scan_idx=27)', # loop 1 day 1 (Thu) Monet
+          '(animal_id=20457 and session=7 and scan_idx=4)',  # loop 1 day 2 (Fri) MEI,
+          '(animal_id=20457 and session=7 and scan_idx=10)', # loop 1 day 2 (Fri) repeat ImageNet,
+          '(animal_id=20457 and session=7 and scan_idx=16)', # loop 1 day 2 (Fri) Monet,
+          '(animal_id=20457 and session=8 and scan_idx=9)',  # loop 1 day 3 (Mon) MEI,
+          '(animal_id=20457 and session=8 and scan_idx=12)', # loop 1 day 3 (Mon) repeat ImageNet
+          '(animal_id=20457 and session=8 and scan_idx=22)', # loop 1 day 3 (Mon) Monet
+          '(animal_id=20505 and session=10 and scan_idx=14)',  # loop 2 day 1 (Tue) source ImageNet,
+          '(animal_id=20505 and session=10 and scan_idx=19)',  # loop 2 day 1 (Tue) repeat ImageNet,
+          '(animal_id=20505 and session=11 and scan_idx=7)',   # loop 2 day 2 (Wed) MEI - BAD: mouse not awake
+          '(animal_id=20505 and session=11 and scan_idx=16)',  # loop 2 day 2 (Wed) repeat ImageNet
+          '(animal_id=20505 and session=12 and scan_idx=16)',  # loop 2 day 3 (Thu) MEI
+          '(animal_id=20505 and session=12 and scan_idx=29)',  # loop 2 day 3 (Thu) repeat ImageNet
+          '(animal_id=20505 and session=14 and scan_idx=4)',   # loop 2 day 4 (Thu) MEI
+          '(animal_id=20505 and session=14 and scan_idx=33)',  # loop 2 day 4 (Thu) repeat ImageNet'
+          '(animal_id=20210 and session=4 and scan_idx=11)',   # loop 3 day 1 (Tue) source ImageNet
+          '(animal_id=20892 and session=3 and scan_idx=14)',   # loop 4 day 1 (Tue, Jan 29) source ImageNet
+          '(animal_id=20892 and session=9 and scan_idx=10)',   # source ImageNet, big FOV
     ]
 
 STATIC = STATIC + MEI_STATIC
@@ -861,6 +864,9 @@ class StaticMultiDataset(dj.Manual):
             ('20505-12-29', dict(animal_id=20505, session=12, scan_idx=29, preproc_id=0)),
             ('20505-14-33', dict(animal_id=20505, session=14, scan_idx=33, preproc_id=0)),
             ('20505-11-16', dict(animal_id=20505, session=11, scan_idx=16, preproc_id=0)),
+            ('20210-4-11', dict(animal_id=20210, session=4, scan_idx=11, preproc_id=0)),
+            ('20892-3-14', dict(animal_id=20892, session=3, scan_idx=14, preproc_id=0)),
+            ('20892-3-14', dict(animal_id=20892, session=9, scan_idx=10, preproc_id=0)),
         ]
         for group_id, (descr, key) in enumerate(selection):
             entry = dict(group_id=group_id, description=descr)
