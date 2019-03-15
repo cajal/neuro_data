@@ -43,17 +43,18 @@ MEI_STATIC = [
           '(animal_id=20457 and session=8 and scan_idx=9)',  # loop 1 day 3 (Mon) MEI,
           '(animal_id=20457 and session=8 and scan_idx=12)', # loop 1 day 3 (Mon) repeat ImageNet
           '(animal_id=20457 and session=8 and scan_idx=22)', # loop 1 day 3 (Mon) Monet
-          '(animal_id=20505 and session=10 and scan_idx=14)',  # loop 2 day 1 (Tue) source ImageNet,
-          '(animal_id=20505 and session=10 and scan_idx=19)',  # loop 2 day 1 (Tue) repeat ImageNet,
+          '(animal_id=20505 and session=10 and scan_idx=14)',  # loop 2 day 1 (Tue) source ImageNet
+          '(animal_id=20505 and session=10 and scan_idx=19)',  # loop 2 day 1 (Tue) repeat ImageNet
           '(animal_id=20505 and session=11 and scan_idx=7)',   # loop 2 day 2 (Wed) MEI - BAD: mouse not awake
           '(animal_id=20505 and session=11 and scan_idx=16)',  # loop 2 day 2 (Wed) repeat ImageNet
           '(animal_id=20505 and session=12 and scan_idx=16)',  # loop 2 day 3 (Thu) MEI
           '(animal_id=20505 and session=12 and scan_idx=29)',  # loop 2 day 3 (Thu) repeat ImageNet
           '(animal_id=20505 and session=14 and scan_idx=4)',   # loop 2 day 4 (Thu) MEI
-          '(animal_id=20505 and session=14 and scan_idx=33)',  # loop 2 day 4 (Thu) repeat ImageNet'
+          '(animal_id=20505 and session=14 and scan_idx=33)',  # loop 2 day 4 (Thu) repeat ImageNet
           '(animal_id=20210 and session=4 and scan_idx=11)',   # loop 3 day 1 (Tue) source ImageNet
+          #'(animal_id=20210 and session=8 and scan_idx=11)',   # loop 3 day 4 (Fri) MEI vs ImageNet
           '(animal_id=20892 and session=3 and scan_idx=14)',   # loop 4 day 1 (Tue, Jan 29) source ImageNet
-          '(animal_id=20892 and session=9 and scan_idx=10)',   # source ImageNet, big FOV
+          '(animal_id=20892 and session=9 and scan_idx=10)',   # loop 4 day x (Thu, Feb 7) ImageNet, big FOV
     ]
 
 STATIC = STATIC + MEI_STATIC
