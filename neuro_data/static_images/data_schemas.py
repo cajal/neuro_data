@@ -882,7 +882,11 @@ class StaticMultiDataset(dj.Manual):
             ('20505-11-16', dict(animal_id=20505, session=11, scan_idx=16, preproc_id=0)),
             ('20210-4-11', dict(animal_id=20210, session=4, scan_idx=11, preproc_id=0)),
             ('20892-3-14', dict(animal_id=20892, session=3, scan_idx=14, preproc_id=0)),
-            ('20892-3-14', dict(animal_id=20892, session=9, scan_idx=10, preproc_id=0)),
+            ('20892-9-10', dict(animal_id=20892, session=9, scan_idx=10, preproc_id=0)),
+            ('20210-5-16', dict(animal_id=20210, session=5, scan_idx=16, preproc_id=0)),
+            ('20210-7-14', dict(animal_id=20210, session=7, scan_idx=14, preproc_id=0)),
+            ('20210-8-17', dict(animal_id=20210, session=8, scan_idx=17, preproc_id=0)),
+            ('20892-6-24', dict(animal_id=20892, session=6, scan_idx=24, preproc_id=0)),
         ]
         for group_id, (descr, key) in enumerate(selection):
             entry = dict(group_id=group_id, description=descr)
