@@ -17,6 +17,8 @@ from ..utils.sampler import RepeatSubsetSequentialSampler, BalancedSubsetSampler
 
 schema = dj.schema('neurodata_movie_configs', locals())
 
+common_configs = dj.create_virtual_module('common_configs', 'neurodata_configs')
+
 
 class DataLoaderTFirst(DataLoader):
     def __iter__(self):
