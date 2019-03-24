@@ -23,46 +23,47 @@ class SubsetSequentialSampler(Sampler):
         return len(self.indices)
 
 
-class RepeatSubsetRandomSampler(Sampler):
-    r"""Samples elements randomly from a given list of indices, without replacement for a repeated number of times.
+class SampledSubsetRandomSampler(Sampler):
+    r"""Samples elements randomly from sampled subset of indices.
 
     Arguments:
         indices (sequence): a sequence of indices
-        repeat (int)
+        num_samples (int): number of samples to draw
     """
 
-    def __init__(self, indices, repeat=1):
+    def __init__(self, indices, num_samples):
         self.indices = indices
-        self.repeat = repeat
+        self.num_samples = num_samples
+        self.replace = num_samples > len(indices)
 
     def __iter__(self):
-        return chain.from_iterable(
-            (self.indices[i] for i in torch.randperm(len(self.indices)))
-            for _ in range(self.repeat))
+        indices = np.random.choice(self.indices, size=self.num_samples, replace=self.replace)
+        return iter(indices.tolist())
 
     def __len__(self):
-        return len(self.indices) * self.repeat
+        return self.num_samples
 
 
-class RepeatSubsetSequentialSampler(Sampler):
-    r"""Samples elements sequentially from a given list of indices, without replacement for a repeated number of times.
+class SampledSubsetSequentialSampler(Sampler):
+    r"""Samples elements sequentially from sampled subset of indices.
 
     Arguments:
         indices (sequence): a sequence of indices
-        repeat (int)
+        num_samples (int): number of samples to draw
     """
 
-    def __init__(self, indices, repeat=1):
+    def __init__(self, indices, num_samples):
         self.indices = indices
-        self.repeat = repeat
+        self.num_samples = num_samples
+        self.replace = num_samples > len(indices)
 
     def __iter__(self):
-        return chain.from_iterable(
-            (self.indices[i] for i in range(len(self.indices)))
-            for _ in range(self.repeat))
+        indices = np.random.choice(self.indices, size=self.num_samples, replace=self.replace)
+        sorted_indices = np.sort(indices)
+        return iter(sorted_indices.tolist())
 
     def __len__(self):
-        return len(self.indices) * self.repeat
+        return self.num_samples
 
 
 class SubSubsetRandomSequentialSampler(Sampler):

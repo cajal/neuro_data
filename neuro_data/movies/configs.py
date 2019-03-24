@@ -13,7 +13,7 @@ from .schema_bridge import stimulus, experiment
 from .transforms import Subsample, Normalizer, ToTensor, Subsequence, ScaleInput, Resize
 from .. import logger as log
 from ..utils.config import ConfigBase, fixed_seed
-from ..utils.sampler import RepeatSubsetSequentialSampler, BalancedSubsetSampler, RepeatSubsetRandomSampler
+from ..utils.sampler import BalancedSubsetSampler, SampledSubsetRandomSampler, SampledSubsetSequentialSampler
 
 schema = dj.schema('neurodata_movie_configs', locals())
 
@@ -98,11 +98,11 @@ class StimulusTypeMixin:
         assert tier in ['train', 'validation', 'test', None]
         if tier == 'train':
             if not balanced:
-                Sampler = RepeatSubsetRandomSampler
+                Sampler = SampledSubsetRandomSampler
             else:
                 Sampler = BalancedSubsetSampler
         else:
-            Sampler = RepeatSubsetSequentialSampler
+            Sampler = SampledSubsetSequentialSampler
         return Sampler
 
     def log_loader(self, loader):
@@ -115,7 +115,7 @@ class StimulusTypeMixin:
 
     def get_loaders(self, datasets, tier, batch_size, stimulus_types, balanced=False,
                     merge_noise_types=True, shrink_to_same_size=False, Sampler=None,
-                    t_first=False, repeat=1):
+                    t_first=False, train_iterations=None):
         if Sampler is None:
             Sampler = self.get_sampler_class(tier, balanced)
 
@@ -169,9 +169,13 @@ class StimulusTypeMixin:
                 types = np.array(
                     [('Clip' if t == 'stimulus.Clip' else 'Noise') for t in dataset.types])
                 sampler = Sampler(ix, types)
-            elif Sampler in (RepeatSubsetSequentialSampler, RepeatSubsetRandomSampler):
-                log.info('Number of repeats={}'.format(repeat))
-                sampler = Sampler(ix, repeat=repeat)
+            elif Sampler in (SampledSubsetRandomSampler, SampledSubsetSequentialSampler):
+                if (train_iterations is None) or (tier != 'train'):
+                    num_samples = len(ix)
+                else:
+                    num_samples = batch_size * train_iterations
+                log.info('Number samples per epoch = {}'.format(num_samples))
+                sampler = Sampler(ix, num_samples=num_samples)
             else:
                 sampler = Sampler(ix)
             if t_first:
@@ -188,7 +192,7 @@ class StimulusTypeMixin:
     def load_data(self, key, stimulus_types, tier=None, batch_size=1, key_order=None,
                   normalize=True, exclude_from_normalization=None,
                   balanced=False, shrink_to_same_size=False, cuda=False,
-                  Sampler=None, t_first=False, repeat=1):
+                  Sampler=None, t_first=False, train_iterations=None):
         log.info('Loading {} datasets with tier {}'.format(
             pformat(stimulus_types, indent=20), tier))
         datasets = MovieMultiDataset().fetch_data(key, key_order=key_order)
@@ -205,13 +209,13 @@ class StimulusTypeMixin:
         loaders = self.get_loaders(
             datasets, tier, batch_size, stimulus_types=stimulus_types,
             balanced=balanced, shrink_to_same_size=shrink_to_same_size,
-            Sampler=Sampler, t_first=t_first, repeat=repeat)
+            Sampler=Sampler, t_first=t_first, train_iterations=train_iterations)
         return datasets, loaders
 
 
 class AreaLayerMixin(StimulusTypeMixin):
     def load_data(self, key, tier=None, batch_size=1, key_order=None, cuda=False,
-                  Sampler=None, t_first=False, repeat=1, **kwargs):
+                  Sampler=None, t_first=False, train_iterations=None, **kwargs):
         log.info('Ignoring {} when loading {}'.format(
             pformat(kwargs, indent=20), self.__class__.__name__))
         shrink = key.pop('shrink', False)
@@ -224,7 +228,8 @@ class AreaLayerMixin(StimulusTypeMixin):
                                               normalize=key.pop('normalize'),
                                               balanced=balanced,
                                               shrink_to_same_size=shrink,
-                                              cuda=cuda, Sampler=Sampler, t_first=t_first, repeat=repeat)
+                                              cuda=cuda, Sampler=Sampler, t_first=t_first,
+                                              train_iterations=train_iterations)
 
         if 'brain_area' in key:
             log.info(
@@ -249,8 +254,8 @@ class AreaLayerMixin(StimulusTypeMixin):
 
 
 class AreaLayerReliableMixin(AreaLayerMixin):
-    def load_data(self, key, tier=None, batch_size=1, seq_len=None,
-                  Sampler=None, t_first=False, cuda=False, scale_input=False, repeat=1, **kwargs):
+    def load_data(self, key, tier=None, batch_size=1, seq_len=None, Sampler=None, t_first=False,
+                  cuda=False, scale_input=False, train_iterations=None, **kwargs):
         log.info('Ignoring {} when loading {}'.format(
             pformat(kwargs, indent=20), self.__class__.__name__))
 
@@ -259,7 +264,7 @@ class AreaLayerReliableMixin(AreaLayerMixin):
         assert tier in [None, 'train', 'validation', 'test']
         datasets, loaders = super().load_data(
             key, tier=tier, batch_size=batch_size, Sampler=Sampler,
-            t_first=t_first, cuda=cuda, repeat=repeat)
+            t_first=t_first, cuda=cuda, train_iterations=train_iterations)
         for rok, dataset in datasets.items():
             member_key = (MovieMultiDataset.Member() & key &
                           dict(name=rok)).fetch1(dj.key)
