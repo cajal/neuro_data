@@ -28,7 +28,7 @@ class StaticImageSet(H5ArraySet):
     def transformed_mean(self, stats_source=None):
         if stats_source is None:
             stats_source = self.stats_source
-        tmp = [np.atleast_1d(self.statistics['{}/{}/mean'.format(dk, stats_source)].value)
+        tmp = [np.atleast_1d(self.statistics['{}/{}/mean'.format(dk, stats_source)][()])
                for dk in self.data_keys]
         return self.transform(self.data_point(*tmp))
 

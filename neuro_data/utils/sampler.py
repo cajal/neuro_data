@@ -3,6 +3,7 @@ from collections import Counter
 import torch
 import numpy as np
 from torch.utils.data.sampler import Sampler
+from itertools import chain
 
 
 class SubsetSequentialSampler(Sampler):
@@ -20,6 +21,49 @@ class SubsetSequentialSampler(Sampler):
 
     def __len__(self):
         return len(self.indices)
+
+
+class SampledSubsetRandomSampler(Sampler):
+    r"""Samples elements randomly from sampled subset of indices.
+
+    Arguments:
+        indices (sequence): a sequence of indices
+        num_samples (int): number of samples to draw
+    """
+
+    def __init__(self, indices, num_samples):
+        self.indices = indices
+        self.num_samples = num_samples
+        self.replace = num_samples > len(indices)
+
+    def __iter__(self):
+        indices = np.random.choice(self.indices, size=self.num_samples, replace=self.replace)
+        return iter(indices.tolist())
+
+    def __len__(self):
+        return self.num_samples
+
+
+class SampledSubsetSequentialSampler(Sampler):
+    r"""Samples elements sequentially from sampled subset of indices.
+
+    Arguments:
+        indices (sequence): a sequence of indices
+        num_samples (int): number of samples to draw
+    """
+
+    def __init__(self, indices, num_samples):
+        self.indices = indices
+        self.num_samples = num_samples
+        self.replace = num_samples > len(indices)
+
+    def __iter__(self):
+        indices = np.random.choice(self.indices, size=self.num_samples, replace=self.replace)
+        sorted_indices = np.sort(indices)
+        return iter(sorted_indices.tolist())
+
+    def __len__(self):
+        return self.num_samples
 
 
 class SubSubsetRandomSequentialSampler(Sampler):
