@@ -231,25 +231,31 @@ class AreaLayerMixin(StimulusTypeMixin):
                                               cuda=cuda, Sampler=Sampler, t_first=t_first,
                                               train_iterations=train_iterations)
 
-        if 'brain_area' in key:
-            log.info(
-                'Subsampling to layer "{layer}" and area "{brain_area}"'.format(**key))
-            for readout_key, dataset in datasets.items():
-                layers = dataset.neurons.layer
-                areas = dataset.neurons.area
+        def area_layer_idx(areas, layers):
+            if 'brain_area' in key:
+                log.info('Subsampling to layer "{layer}" and area "{brain_area}"'.format(**key))
                 idx = np.where((layers == key['layer']) & (areas == key['brain_area']))[0]
-                dataset.transforms.insert(-1, Subsample(idx))
-        else:
-            log.info(
-                'Subsampling to layer "{layer}" and areas "{brain_areas}"'.format(**key))
-            for dataset in datasets.values():
-                layers = dataset.neurons.layer
-                areas = dataset.neurons.area
+            elif 'brain_areas' in key:
+                log.info('Subsampling to layer "{layer}" and areas "{brain_areas}"'.format(**key))
                 brain_areas_mask = False
                 for brain_area in (common_configs.BrainAreas.BrainArea & key).fetch('brain_area'):
                     brain_areas_mask = brain_areas_mask | (areas == brain_area)
                 idx = np.where((layers == key['layer']) & brain_areas_mask)[0]
+            else:
+                raise Exception('brain area key not recognized')
+            return idx
+
+        for readout_key, dataset in datasets.items():
+            areas = dataset.neurons.area
+            layers = dataset.neurons.layer
+            idx = area_layer_idx(areas, layers)
+            if len(idx) == 0:
+                log.warning('Empty set of neurons. Deleting this key')
+                del datasets[readout_key]
+                del loaders[readout_key]
+            else:
                 dataset.transforms.insert(-1, Subsample(idx))
+
         return datasets, loaders
 
 
