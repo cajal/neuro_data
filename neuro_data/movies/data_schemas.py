@@ -818,7 +818,7 @@ class AttributeTransformer:
         if not item in self.h5_handle[self.name]:
             raise AttributeError('{} is not among the attributes'.format(item))
         else:
-            ret = self.h5_handle[self.name][item].value
+            ret = self.h5_handle[self.name][item][()]
             if ret.dtype.char == 'S':  # convert bytes to univcode
                 ret = ret.astype(str)
             for tr in self.transforms:
@@ -848,14 +848,14 @@ class MovieSet(H5SequenceSet):
         if stats_source is None:
             stats_source = self.stats_source
 
-        tmp = [np.atleast_1d(self.statistics['{}/{}/mean'.format(dk, stats_source)].value)
+        tmp = [np.atleast_1d(self.statistics['{}/{}/mean'.format(dk, stats_source)][()])
                for dk in self.data_groups]
         return self.transform(self.data_point(*tmp), exclude=Subsequence)
 
     def rf_base(self, stats_source='all'):
         N, c, t, w, h = self.img_shape
         t = min(t, 150)
-        mean = lambda dk: self.statistics['{}/{}/mean'.format(dk, stats_source)].value
+        mean = lambda dk: self.statistics['{}/{}/mean'.format(dk, stats_source)][()]
         d = dict(
             inputs=np.ones((1, c, t, w, h)) * np.array(mean('inputs')),
             eye_position=np.ones((1, t, 1)) * mean('eye_position')[None, None, :],
@@ -879,7 +879,7 @@ class MovieSet(H5SequenceSet):
 
         """
         N, c, _, w, h = self.img_shape
-        stat = lambda dk, what: self.statistics['{}/{}/{}'.format(dk, stats_source, what)].value
+        stat = lambda dk, what: self.statistics['{}/{}/{}'.format(dk, stats_source, what)][()]
         mu, s = stat('inputs', 'mean'), stat('inputs', 'std')
         h_filt = np.float64([
             [1 / 16, 1 / 8, 1 / 16],

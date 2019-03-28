@@ -31,8 +31,7 @@ class Normalizer(DataTransform, Invertible):
 
         exclude = self.exclude = exclude or []
 
-        self._inputs_std = data.statistics['inputs/{}/mean'.format(
-            stats_source)].value
+        self._inputs_std = data.statistics['inputs/{}/mean'.format(stats_source)][()]
 
         s = np.array(data.statistics['responses/{}/std'.format(stats_source)])
 
@@ -131,7 +130,7 @@ class ToTensor(DataTransform, Invertible):
                              if self.cuda else torch.from_numpy(elem.astype(np.float32)) for elem in x])
 
 
-class NormalizeInput(DataTransform):
+class ScaleInput(DataTransform):
 
     def __call__(self, x):
         return x.__class__(

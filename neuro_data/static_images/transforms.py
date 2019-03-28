@@ -22,7 +22,7 @@ class Normalizer(DataTransform, Invertible):
 
         self.exclude = exclude or []
 
-        self._inputs_std = data.statistics['images/{}/mean'.format(stats_source)].value
+        self._inputs_std = data.statistics['images/{}/mean'.format(stats_source)][()]
 
         s = np.array(data.statistics['responses/{}/std'.format(stats_source)])
 
