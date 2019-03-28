@@ -52,8 +52,8 @@ MEI_STATIC = [
           '(animal_id=20505 and session=14 and scan_idx=4)',   # loop 2 day 4 (Thu) MEI
           '(animal_id=20505 and session=14 and scan_idx=33)',  # loop 2 day 4 (Thu) repeat ImageNet
           '(animal_id=20210 and session=4 and scan_idx=11)',  # loop 3 day 1 (Tue) source ImageNet
-          #'(animal_id=20210 and session=4 and scan_idx=20)',  # loop 3 day 1 (Tue) ImageNet (not repeat)
-          '(animal_id=20210 and session=5 and scan_idx=26)',  # loop 3 day 2 (Wed) MEI
+          #'(animal_id=20210 and session=4 and scan_idx=20)',  # loop 3 day 1 (Tue) ImageNet (alternative set of images)
+          #'(animal_id=20210 and session=5 and scan_idx=26)',  # loop 3 day 2 (Wed) MEI, eye secretion for half the scan
           '(animal_id=20210 and session=5 and scan_idx=16)',  # loop 3 day 2 (Wed) repeat ImageNet
           '(animal_id=20210 and session=7 and scan_idx=10)',  # loop 3 day 3 (Thu) MEI
           '(animal_id=20210 and session=7 and scan_idx=14)',  # loop 3 day 3 (Thu) repeat ImageNet
