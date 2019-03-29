@@ -297,24 +297,28 @@ class Preprocessing(dj.Lookup):
 
     preproc_id       : tinyint # preprocessing ID
     ---
-    offset           : decimal(6,4)  # offset to stimulus onset in s
-    duration         : decimal(6,4)  # window length in s
-    row              : smallint       # row size of movies
-    col              : smallint       # col size of movie
-    filter           : varchar(24)   # filter type for window extraction
+    offset           : decimal(6,4) # offset to stimulus onset in s
+    duration         : decimal(6,4) # window length in s
+    row              : smallint     # row size of movies
+    col              : smallint     # col size of movie
+    filter           : varchar(24)  # filter type for window extraction
+    gamma            : boolean      # whether to convert images to luminance values rather than pixel intensities
     """
-
-    @property
-    def contents(self):
-        yield dict(preproc_id=0, offset=0.05, duration=.5, row=36, col=64, filter='hamming') # this one was still processed with cropping
-        yield dict(preproc_id=1, offset=0.05, duration=.5, row=36, col=64, filter='hamming')
-        yield dict(preproc_id=2, offset=0.05, duration=.5, row=72, col=128, filter='hamming')
+    contents = [
+        {'preproc_id': 0, 'offset': 0.05, 'duration': 0.5, 'row': 36, 'col': 64,
+         'filter': 'hamming', 'gamma': False},  # this one was still processed with cropping
+        {'preproc_id': 1, 'offset': 0.05, 'duration': 0.5, 'row': 36, 'col': 64,
+         'filter': 'hamming', 'gamma': False},
+        {'preproc_id': 2, 'offset': 0.05, 'duration': 0.5, 'row': 72, 'col': 128,
+         'filter': 'hamming', 'gamma': False},
+        {'preproc_id': 3, 'offset': 0.05, 'duration': 0.5, 'row': 36, 'col': 64,
+         'filter': 'hamming', 'gamma': True},
+    ]
 
 
 @schema
 class Frame(dj.Computed):
-    definition = """
-    # frames downsampled
+    definition = """ # frames downsampled
 
     -> stimulus.Condition
     -> Preprocessing
@@ -509,7 +513,7 @@ class InputResponse(dj.Computed, FilterMixin):
 
         assert include_behavior, 'Behavior data is missing!'
 
-        # make sure that including areas and layers does not decreas number of neurons
+        # make sure that including areas and layers does not decrease number of neurons
         assert len(pipe.ScanSet.UnitInfo() * experiment.Layer() * anatomy.AreaMembership() * anatomy.LayerMembership() & key) == \
                len(pipe.ScanSet.UnitInfo() & key), "AreaMembership decreases number of neurons"
 
@@ -523,6 +527,17 @@ class InputResponse(dj.Computed, FilterMixin):
             images = images[:, None, ...]
         hashes = hashes.astype(str)
         types = types.astype(str)
+
+        # gamma correction
+        if (Preprocessing & key).fetch1('gamma'):
+            log.info('Gamma correcting images.')
+            from staticnet_analyses import multi_mei
+
+            if len(multi_mei.ClosestCalibration & key) == 0:
+                raise ValueError('No ClosestMonitorCalibration for this scan.')
+            f, f_inv = (multi_mei.ClosestCalibration & key).get_fs()
+            images = f(images)
+
 
         # --- extract infomation for each trial
         extra_info = pd.DataFrame({'condition_hash':hashes, 'trial_idx':trial_idxs})
@@ -887,6 +902,7 @@ class StaticMultiDataset(dj.Manual):
             ('20210-7-14', dict(animal_id=20210, session=7, scan_idx=14, preproc_id=0)),
             ('20210-8-17', dict(animal_id=20210, session=8, scan_idx=17, preproc_id=0)),
             ('20892-6-24', dict(animal_id=20892, session=6, scan_idx=24, preproc_id=0)),
+            ('20505-10-14-gamma', dict(animal_id=20505, session=10, scan_idx=14, preproc_id=3)),
         ]
         for group_id, (descr, key) in enumerate(selection):
             entry = dict(group_id=group_id, description=descr)
