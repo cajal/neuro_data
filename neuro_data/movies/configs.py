@@ -14,10 +14,9 @@ from .transforms import Subsample, Normalizer, ToTensor, Subsequence, ScaleInput
 from .. import logger as log
 from ..utils.config import ConfigBase, fixed_seed
 from ..utils.sampler import BalancedSubsetSampler, SampledSubsetRandomSampler, SampledSubsetSequentialSampler
+from ..common import configs as common_configs
 
 schema = dj.schema('neurodata_movie_configs', locals())
-
-common_configs = dj.create_virtual_module('common_configs', 'neurodata_configs')
 
 
 class DataLoaderTFirst(DataLoader):
