@@ -29,6 +29,6 @@ services:
       - /mnt/scratch07:/external
       - /home/fabee/code/neuro_data/dj_local_conf.json:/root/.datajoint_config.json
     environment:
-      - DISPLAY=$DISPLAY
+      - DISPLAY=:"$IP:0"
     entrypoint:
       - /usr/bin/fish

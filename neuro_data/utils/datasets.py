@@ -61,7 +61,7 @@ class H5ArraySet(Dataset):
         if item in self._fid:
             item = self._fid[item]
             if isinstance(item, h5py._hl.dataset.Dataset):
-                item = item.value
+                item = item[()]
                 if item.dtype.char == 'S':  # convert bytes to univcode
                     item = item.astype(str)
                 return item
@@ -77,7 +77,7 @@ class AttributeHandler:
         self.h5_handle = h5_handle
 
     def __getattr__(self, item):
-        ret = self.h5_handle[self.name][item].value
+        ret = self.h5_handle[self.name][item][()]
         if ret.dtype.char == 'S':  # convert bytes to unicode
             ret = ret.astype(str)
         return ret

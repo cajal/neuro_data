@@ -408,7 +408,7 @@ def recursively_load_dict_contents_from_group(h5file, path):
     ans = {}
     for key, item in h5file[path].items():
         if isinstance(item, h5py._hl.dataset.Dataset):
-            ans[key] = item.value
+            ans[key] = item[()]
         elif isinstance(item, h5py._hl.group.Group):
             if '_iterable' in item.attrs and item.attrs['_iterable']:
                 ans[key] = [item[str(i)].value for i in range(len(item))]
