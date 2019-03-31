@@ -33,7 +33,6 @@ class Normalizer(DataTransform, Invertible):
         self.normalize_per_image = normalize_per_image
 
         self._inputs_mean = data.statistics['images/{}/mean'.format(stats_source)].value
-
         if self.buggy:
             # Buggy implementation for backward compatibility
             self._inputs_std = data.statistics['images/{}/mean'.format(stats_source)].value

@@ -870,7 +870,6 @@ class StaticMultiDataset(dj.Manual):
     _template = 'group{group_id:03d}-{animal_id}-{session}-{scan_idx}-{preproc_id}'
 
 
-
     def fill(self):
         selection = [
             ('11521-7-1', dict(animal_id=11521, session=7, scan_idx=1, preproc_id=0)),
