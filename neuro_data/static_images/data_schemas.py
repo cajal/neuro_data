@@ -294,6 +294,25 @@ class Preprocessing(dj.Lookup):
         yield dict(preproc_id=2, offset=0.05, duration=.5, row=72, col=128, filter='hamming')
 
 
+def process_frame(preproc_key, frame):
+    """
+    Helper function that preprocesses a frame
+    """
+    import cv2
+    imgsize = (Preprocessing() & preproc_key).fetch1('col', 'row')  # target size of movie frames
+    log.info('Downsampling frame')
+    if not frame.shape[0] / imgsize[1] == frame.shape[1] / imgsize[0]:
+        log.warning('Image size would change aspect ratio.')
+        # if frame.shape == (126, 216):
+        #     log.warning('Using center crop')
+        #     frame = frame[4:4 + 117, 4:4 + 208]
+        # else:
+        #     raise ValueError('Frame shape {} cannot be processed'.format(frame.shape))
+
+    return cv2.resize(frame, imgsize, interpolation=cv2.INTER_AREA).astype(np.float32)
+
+
+
 @schema
 class Frame(dj.Computed):
     definition = """
@@ -324,23 +343,16 @@ class Frame(dj.Computed):
             raise KeyError('Cannot find matching stimulus relation')
 
     def make(self, key):
-        import cv2
+
 
         log.info(80 * '-')
         log.info('Processing key ' + pformat(dict(key)))
-        imgsize = (Preprocessing() & key).fetch1('col', 'row')  # target size of movie frames
 
-        log.info('Downsampling frame')
+        # get original frame
         frame = self.load_frame(key)
-        if not frame.shape[0] / imgsize[1] == frame.shape[1] / imgsize[0]:
-            log.warning('Image size would change aspect ratio.')
-            # if frame.shape == (126, 216):
-            #     log.warning('Using center crop')
-            #     frame = frame[4:4 + 117, 4:4 + 208]
-            # else:
-            #     raise ValueError('Frame shape {} cannot be processed'.format(frame.shape))
 
-        frame = cv2.resize(frame, imgsize, interpolation=cv2.INTER_AREA).astype(np.float32)
+        # preprocess the frame
+        frame = process_frame(key, frame)
 
         # --- generate response sampling points and sample movie frames relative to it
         self.insert1(dict(key, frame=frame))
@@ -373,7 +385,7 @@ class InputResponse(dj.Computed, FilterMixin):
         definition = """
             -> master
             ---
-            responses           : external-data   # reponse of one neurons for all bins
+            responses           : external-data   # response of one neurons for all bins
             """
 
     class ResponseKeys(dj.Part):
@@ -381,7 +393,7 @@ class InputResponse(dj.Computed, FilterMixin):
             -> master.ResponseBlock
             -> fuse.Activity.Trace
             ---
-            col_id           : int             # row id in the response block
+            col_id           : int             # col id in the response block
             """
 
     def load_traces_and_frametimes(self, key):
