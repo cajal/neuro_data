@@ -9,14 +9,15 @@ from torch.utils.data import DataLoader
 from torch.utils.data.sampler import SubsetRandomSampler
 
 from .data_schemas import MovieMultiDataset
-from .schema_bridge import stimulus, experiment, anatomy
-from .transforms import Subsample, Normalizer, ToTensor, Subsequence
+from .schema_bridge import stimulus, experiment
+from .transforms import Subsample, Normalizer, ToTensor, Subsequence, ScaleInput, Resize
 from .. import logger as log
 from ..utils.config import ConfigBase, fixed_seed
-from ..utils.sampler import SubsetSequentialSampler, BalancedSubsetSampler
-
+from ..utils.sampler import BalancedSubsetSampler, SampledSubsetRandomSampler, SampledSubsetSequentialSampler
 
 schema = dj.schema('neurodata_movie_configs', locals())
+
+common_configs = dj.create_virtual_module('common_configs', 'neurodata_configs')
 
 
 class DataLoaderTFirst(DataLoader):
@@ -40,13 +41,13 @@ class StimulusTypeMixin:
                 assert ex in dataset.data_groups, '{} not in data_groups'.format(
                     ex)
             transforms = []
-            seq_len = key.pop('seq_len', False)
-            if seq_len is not False:
-                if seq_len is not None:
-                    transforms.append(Subsequence(seq_len))
+            if 'seq_len' in key and key['seq_len'] is not None:
+                transforms.append(Subsequence(key['seq_len']))
+            elif tier == 'train' and 'train_seq_len' in key:
+                transforms.append(Subsequence(key['train_seq_len']))
             else:
-                if tier == 'train':
-                    transforms.append(Subsequence(key['train_seq_len']))
+                log.warning('No subsquence transform will be added to the dataset!')
+
             if normalize:
                 log.info('Using normalization={}'.format(normalize))
                 transforms.append(Normalizer(
@@ -97,11 +98,11 @@ class StimulusTypeMixin:
         assert tier in ['train', 'validation', 'test', None]
         if tier == 'train':
             if not balanced:
-                Sampler = SubsetRandomSampler
+                Sampler = SampledSubsetRandomSampler
             else:
                 Sampler = BalancedSubsetSampler
         else:
-            Sampler = SubsetSequentialSampler
+            Sampler = SampledSubsetSequentialSampler
         return Sampler
 
     def log_loader(self, loader):
@@ -114,7 +115,7 @@ class StimulusTypeMixin:
 
     def get_loaders(self, datasets, tier, batch_size, stimulus_types, balanced=False,
                     merge_noise_types=True, shrink_to_same_size=False, Sampler=None,
-                    t_first=False):
+                    t_first=False, train_iterations=None):
         if Sampler is None:
             Sampler = self.get_sampler_class(tier, balanced)
 
@@ -168,6 +169,13 @@ class StimulusTypeMixin:
                 types = np.array(
                     [('Clip' if t == 'stimulus.Clip' else 'Noise') for t in dataset.types])
                 sampler = Sampler(ix, types)
+            elif Sampler in (SampledSubsetRandomSampler, SampledSubsetSequentialSampler):
+                if (train_iterations is None) or (tier != 'train'):
+                    num_samples = len(ix)
+                else:
+                    num_samples = batch_size * train_iterations
+                log.info('Number samples per epoch = {}'.format(num_samples))
+                sampler = Sampler(ix, num_samples=num_samples)
             else:
                 sampler = Sampler(ix)
             if t_first:
@@ -184,7 +192,7 @@ class StimulusTypeMixin:
     def load_data(self, key, stimulus_types, tier=None, batch_size=1, key_order=None,
                   normalize=True, exclude_from_normalization=None,
                   balanced=False, shrink_to_same_size=False, cuda=False,
-                  Sampler=None, t_first=False):
+                  Sampler=None, t_first=False, train_iterations=None):
         log.info('Loading {} datasets with tier {}'.format(
             pformat(stimulus_types, indent=20), tier))
         datasets = MovieMultiDataset().fetch_data(key, key_order=key_order)
@@ -201,13 +209,13 @@ class StimulusTypeMixin:
         loaders = self.get_loaders(
             datasets, tier, batch_size, stimulus_types=stimulus_types,
             balanced=balanced, shrink_to_same_size=shrink_to_same_size,
-            Sampler=Sampler, t_first=t_first)
+            Sampler=Sampler, t_first=t_first, train_iterations=train_iterations)
         return datasets, loaders
 
 
 class AreaLayerMixin(StimulusTypeMixin):
     def load_data(self, key, tier=None, batch_size=1, key_order=None, cuda=False,
-                  Sampler=None, t_first=False, **kwargs):
+                  Sampler=None, t_first=False, train_iterations=None, **kwargs):
         log.info('Ignoring {} when loading {}'.format(
             pformat(kwargs, indent=20), self.__class__.__name__))
         shrink = key.pop('shrink', False)
@@ -220,16 +228,73 @@ class AreaLayerMixin(StimulusTypeMixin):
                                               normalize=key.pop('normalize'),
                                               balanced=balanced,
                                               shrink_to_same_size=shrink,
-                                              cuda=cuda, Sampler=Sampler, t_first=t_first)
+                                              cuda=cuda, Sampler=Sampler, t_first=t_first,
+                                              train_iterations=train_iterations)
 
-        log.info(
-            'Subsampling to layer "{layer}" and area "{brain_area}"'.format(**key))
+        def area_layer_idx(areas, layers):
+            if 'brain_area' in key:
+                log.info('Subsampling to layer "{layer}" and area "{brain_area}"'.format(**key))
+                idx = np.where((layers == key['layer']) & (areas == key['brain_area']))[0]
+            elif 'brain_areas' in key:
+                log.info('Subsampling to layer "{layer}" and areas "{brain_areas}"'.format(**key))
+                brain_areas_mask = False
+                for brain_area in (common_configs.BrainAreas.BrainArea & key).fetch('brain_area'):
+                    brain_areas_mask = brain_areas_mask | (areas == brain_area)
+                idx = np.where((layers == key['layer']) & brain_areas_mask)[0]
+            else:
+                raise Exception('brain area key not recognized')
+            return idx
+
         for readout_key, dataset in datasets.items():
-            layers = dataset.neurons.layer
             areas = dataset.neurons.area
-            idx = np.where((layers == key['layer']) & (
-                areas == key['brain_area']))[0]
-            dataset.transforms.insert(-1, Subsample(idx))
+            layers = dataset.neurons.layer
+            idx = area_layer_idx(areas, layers)
+            if len(idx) == 0:
+                log.warning('Empty set of neurons. Deleting this key')
+                del datasets[readout_key]
+                del loaders[readout_key]
+            else:
+                dataset.transforms.insert(-1, Subsample(idx))
+
+        return datasets, loaders
+
+
+class AreaLayerReliableMixin(AreaLayerMixin):
+    def load_data(self, key, tier=None, batch_size=1, seq_len=None, Sampler=None, t_first=False,
+                  cuda=False, scale_input=False, train_iterations=None, **kwargs):
+        log.info('Ignoring {} when loading {}'.format(
+            pformat(kwargs, indent=20), self.__class__.__name__))
+
+        from .stats import BootstrapOracleTTest
+        key['seq_len'] = seq_len
+        assert tier in [None, 'train', 'validation', 'test']
+        datasets, loaders = super().load_data(
+            key, tier=tier, batch_size=batch_size, Sampler=Sampler,
+            t_first=t_first, cuda=cuda, train_iterations=train_iterations)
+        for rok, dataset in datasets.items():
+            member_key = (MovieMultiDataset.Member() & key &
+                          dict(name=rok)).fetch1(dj.key)
+            all_units, all_pvals = (
+                BootstrapOracleTTest.UnitPValue & member_key).fetch(
+                'unit_id', 'unit_p_value')
+            assert len(all_pvals) > 0, \
+                'You forgot to populate BootstrapOracleTTest for group_id={}'.format(
+                    member_key['group_id'])
+            units_mask = np.isin(all_units, dataset.neurons.unit_ids)
+            units, pvals = all_units[units_mask], all_pvals[units_mask]
+            assert np.all(
+                units == dataset.neurons.unit_ids), 'order of neurons has changed'
+            pval_thresh = np.power(10, float(key['p_val_power']))
+            selection = pvals < pval_thresh
+            log.info('Subsampling to {} neurons with BootstrapOracleTTest p-val < {:.0E}'.format(
+                selection.sum(), pval_thresh))
+            dataset.transforms.insert(
+                -1, Subsample(np.where(selection)[0]))
+            if scale_input:
+                log.info('Scaling Input to [0, 1]')
+                dataset.transforms.insert(-1, ScaleInput())
+            assert np.all(dataset.neurons.unit_ids ==
+                          units[selection]), 'Units are inconsistent'
         return datasets, loaders
 
 
@@ -268,7 +333,7 @@ class DataConfig(ConfigBase, dj.Lookup):
         -> master
         ---
         stats_source            : varchar(50)  # normalization source
-        stimulus_type           : varchar(512)  # type of stimulus
+        stimulus_type           : varchar(512) # type of stimulus
         exclude                 : varchar(512) # what inputs to exclude from normalization
         normalize               : bool         # whether to use a normalize or not
         train_seq_len           : smallint     # training sequence length in frames
@@ -285,7 +350,8 @@ class DataConfig(ConfigBase, dj.Lookup):
         def content(self):
             for p in product(['all'],
                              ['stimulus.Clip', '~stimulus.Clip',
-                                 'stimulus.Clip(unreal)', 'stimulus.Clip(~unreal)'],
+                              'stimulus.Clip(unreal)', 'stimulus.Clip(~unreal)',
+                              'stimulus.Clip|~stimulus.Clip'],
                              ['inputs,responses'],
                              [True],
                              [30 * 5],
@@ -355,8 +421,11 @@ class DataConfig(ConfigBase, dj.Lookup):
                              [100]):
                 yield dict(zip(self.heading.dependent_attributes, p))
 
-        def load_data(self, key, tier=None, batch_size=1, seq_len=None,
-                      Sampler=None, t_first=False, cuda=False):
+        def load_data(self, key, tier=None, batch_size=1, seq_len=None, Sampler=None, t_first=False, cuda=False,
+                      **kwargs):
+            log.info('Ignoring {} when loading {}'.format(
+                pformat(kwargs, indent=20), self.__class__.__name__))
+
             from .stats import Oracle
             key['seq_len'] = seq_len
             datasets, loaders = super().load_data(
@@ -388,6 +457,64 @@ class DataConfig(ConfigBase, dj.Lookup):
                 assert np.all(dataset.neurons.unit_ids ==
                               units[selection]), 'Units are inconsistent'
             return datasets, loaders
+
+    class AreaLayerReliable(dj.Part, AreaLayerReliableMixin):
+        definition = """
+        -> master
+        ---
+        stats_source            : varchar(50)  # normalization source
+        stimulus_type           : varchar(512) # type of stimulus
+        exclude                 : varchar(512) # what inputs to exclude from normalization
+        normalize               : bool         # whether to use a normalize or not
+        -> experiment.Layer
+        -> anatomy.Area
+        p_val_power             : tinyint      # 10^(p_val_power) is p-val threshold
+        """
+        _exclude_from_normalization = ['inputs', 'responses']
+
+        def describe(self, key):
+            return "Like AreaLayer but only neurons that have significantly different (p-val < {:.0E}) response-oracle correlations to the same stimuli vs different stimuli".format(
+                np.power(10, float(key['p_val_power'])))
+
+        @property
+        def content(self):
+            for p in product(['all'],
+                             ['stimulus.Clip', '~stimulus.Clip'],
+                             ['inputs,responses'],
+                             [True],
+                             ['L2/3'],
+                             ['V1'],
+                             [-3]):
+                yield dict(zip(self.heading.dependent_attributes, p))
+
+    class AreasLayerReliable(dj.Part, AreaLayerReliableMixin):
+        definition = """
+        -> master
+        ---
+        stats_source            : varchar(50)  # normalization source
+        stimulus_type           : varchar(512) # type of stimulus
+        exclude                 : varchar(512) # what inputs to exclude from normalization
+        normalize               : bool         # whether to use a normalize or not
+        -> experiment.Layer
+        -> common_configs.BrainAreas
+        p_val_power             : tinyint       # 10^(p_val_power) is p-val threshold
+        """
+        _exclude_from_normalization = ['inputs', 'responses']
+
+        def describe(self, key):
+            return "Like AreaLayer but only neurons that have significantly different (p-val < {:.0E}) response-oracle correlations to the same stimuli vs different stimuli".format(
+                np.power(10, float(key['p_val_power'])))
+
+        @property
+        def content(self):
+            for p in product(['all'],
+                             ['stimulus.Clip', '~stimulus.Clip'],
+                             ['inputs,responses'],
+                             [True],
+                             ['L2/3'],
+                             ['V1+LM+LI+AL+RL'],
+                             [-3]):
+                yield dict(zip(self.heading.dependent_attributes, p))
 
     class AreaLayerSubset(dj.Part, StimulusTypeMixin):
         definition = """
@@ -475,7 +602,8 @@ class DataConfig(ConfigBase, dj.Lookup):
                         gap = durations[selection].sum() - key['seconds']
                         if gap != 0:
                             log.warning(
-                                '{gap}s gap between requested stimulus length and actual stimulus length.'.format(gap=gap))
+                                '{gap}s gap between requested stimulus length and actual stimulus length.'.format(
+                                    gap=gap))
                         log.info('Using {} trials'.format(
                             (total_duration <= key['seconds'])).sum())
                         log.info(

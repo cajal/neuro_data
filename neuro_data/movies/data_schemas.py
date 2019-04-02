@@ -32,7 +32,8 @@ UNIQUE_CLIP = {
     'stimulus.Clip': ('movie_name', 'clip_number', 'cut_after', 'skip_time'),
     'stimulus.Monet': ('rng_seed',),
     'stimulus.Monet2': ('rng_seed',),
-    'stimulus.Trippy': ('rng_seed',)
+    'stimulus.Trippy': ('rng_seed',),
+    'stimulus.Matisse2': ('condition_hash',)
 }
 
 schema = dj.schema('neurodata_movies', locals())
@@ -47,9 +48,19 @@ MOVIESCANS = [  # '(animal_id=16278 and session=11 and scan_idx between 5 and 9)
     platinum.CuratedScan() & dict(animal_id=18142, scan_purpose='trainable_platinum_classic', score=4),
     platinum.CuratedScan() & dict(animal_id=17797, scan_purpose='trainable_platinum_classic') & 'score > 2',
     'animal_id=16314 and session=3 and scan_idx=1',
+    # golden
     experiment.Scan() & (stimulus.Trial & stimulus.Condition() & stimulus.Monet()) & dict(animal_id=8973),
     'animal_id=18979 and session=2 and scan_idx=7',
-    'animal_id=18799 and session=3 and scan_idx=14'
+    'animal_id=18799 and session=3 and scan_idx=14',
+    'animal_id=18799 and session=4 and scan_idx=18',
+    'animal_id=18979 and session=2 and scan_idx=5',
+    # start with segmentation method 6
+    'animal_id=20457 and session=1 and scan_idx=15',
+    'animal_id=20457 and session=2 and scan_idx=20',
+    'animal_id=20501 and session=1 and scan_idx=10',
+    'animal_id=20458 and session=3 and scan_idx=5',
+    # manolis data
+    'animal_id=16314 and session=4 and scan_idx=3',
 ]
 
 
@@ -71,15 +82,23 @@ class MovieScan(dj.Computed):
         -> fuse.ScanSet.Unit
         """
 
-    key_source = fuse.ScanDone() & MOVIESCANS & dict(segmentation_method=3, spike_method=5)
+    key_source = (fuse.ScanDone() & MOVIESCANS & dict(segmentation_method=3,
+                                                      spike_method=5) & 'animal_id < 19000').proj() + \
+                 (fuse.ScanDone() & MOVIESCANS & dict(segmentation_method=6,
+                                                      spike_method=5) & 'animal_id > 19000').proj()
 
     def _make_tuples(self, key):
         self.insert(fuse.ScanDone() & key, ignore_extra_fields=True)
         pipe = (fuse.ScanDone() & key).fetch1('pipe')
         pipe = dj.create_virtual_module(pipe, 'pipeline_' + pipe)
-        self.Unit().insert(fuse.ScanDone * pipe.ScanSet.Unit * pipe.MaskClassification.Type & key
-                           & dict(pipe_version=1, segmentation_method=3, spike_method=5, type='soma'),
-                           ignore_extra_fields=True)
+        if key['animal_id'] < 19000:
+            self.Unit().insert(fuse.ScanDone * pipe.ScanSet.Unit * pipe.MaskClassification.Type & key
+                               & dict(pipe_version=1, segmentation_method=3, spike_method=5, type='soma'),
+                               ignore_extra_fields=True)
+        else:
+            self.Unit().insert(fuse.ScanDone * pipe.ScanSet.Unit * pipe.MaskClassification.Type & key
+                               & dict(pipe_version=1, segmentation_method=6, spike_method=5, type='soma'),
+                               ignore_extra_fields=True)
 
 
 @schema
@@ -171,7 +190,7 @@ class ConditionTier(dj.Computed):
         log.info('Processing ' + repr(key))
         conditions = dj.U('stimulus_type').aggr(stimulus.Condition() & (stimulus.Trial() & key),
                                                 count='count(*)') \
-                     & 'stimulus_type in ("stimulus.Clip","stimulus.Monet", "stimulus.Monet2", "stimulus.Trippy")'
+                     & 'stimulus_type in ("stimulus.Clip","stimulus.Monet", "stimulus.Monet2", "stimulus.Trippy", "stimulus.Matisse2")'
         for cond in conditions.fetch(as_dict=True):
             log.info('Checking condition {stimulus_type} (n={count})'.format(**cond))
             clips = (stimulus.Condition() * MovieScan() & key & cond).aggr(stimulus.Trial(), repeats="count(*)",
@@ -353,7 +372,6 @@ class InputResponse(dj.Computed, FilterMixin, TraceMixin):
         if not np.all(nodrop & valid):
             log.warning('Dropping {} trials with dropped frames or flips outside the recording interval'.format(
                 (~(nodrop & valid)).sum()))
-
         for trial_key, flips, samps, take in tqdm(zip(trial_keys, flip_times, sample_times, nodrop & valid),
                                                   total=len(trial_keys), desc='Trial '):
             if take:
@@ -498,7 +516,7 @@ class InputResponse(dj.Computed, FilterMixin, TraceMixin):
                       val_idx=val_idx,
                       test_idx=test_idx,
                       condition_hashes=hashes.astype('S'),
-                      durations = durations.astype(np.float32),
+                      durations=durations.astype(np.float32),
                       trial_idx=trial_idx.astype(np.uint32),
                       neurons=neurons,
                       tiers=tiers.astype('S'),
@@ -610,6 +628,7 @@ class Eye(dj.Computed, FilterMixin, BehaviorMixin):
                              ignore_extra_fields=True)
 
 
+
 @schema
 class Treadmill(dj.Computed, FilterMixin, BehaviorMixin):
     definition = """
@@ -688,38 +707,58 @@ class MovieMultiDataset(dj.Manual):
         selection = [
             ('17358-5-3', [
                 dict(animal_id=17358, session=5, scan_idx=3, preproc_id=0, pipe_version=1, segmentation_method=3,
-                     spike_method=5)]),
+                     spike_method=5)]), # 0
             ('17797-8-5', [
                 dict(animal_id=17797, session=8, scan_idx=5, preproc_id=0, pipe_version=1, segmentation_method=3,
-                     spike_method=5)]),
+                     spike_method=5)]), # 1
             ('18142-6-3', [
                 dict(animal_id=18142, session=6, scan_idx=3, preproc_id=0, pipe_version=1, segmentation_method=3,
-                     spike_method=5)]),
+                     spike_method=5)]), # 2
             ('17358-5-3-triple', dj.AndList([
                 dict(animal_id=17358, session=5, scan_idx=3, pipe_version=1, segmentation_method=3, spike_method=5),
-                'preproc_id in (0,1,2)'])),
+                'preproc_id in (0,1,2)'])), # 3
             ('17797-8-5-triple', dj.AndList([
                 dict(animal_id=17797, session=8, scan_idx=5, pipe_version=1, segmentation_method=3, spike_method=5),
-                'preproc_id in (0,1,2)'])),
+                'preproc_id in (0,1,2)'])), # 4
             ('18142-6-3-triple', dj.AndList([
                 dict(animal_id=17358, session=5, scan_idx=3, pipe_version=1, segmentation_method=3, spike_method=5),
-                'preproc_id in (0,1,2)'])),
+                'preproc_id in (0,1,2)'])), # 5
             ('9771-1-1-triple', dj.AndList([
                 dict(animal_id=9771, session=1, scan_idx=1, pipe_version=1, segmentation_method=3, spike_method=5),
-                'preproc_id in (0,1,2)'])),
+                'preproc_id in (0,1,2)'])),  # 6
             ('9771-1-2-triple', dj.AndList([
                 dict(animal_id=9771, session=1, scan_idx=2, pipe_version=1, segmentation_method=3, spike_method=5),
-                'preproc_id in (0,1,2)'])),
+                'preproc_id in (0,1,2)'])),  # 7
             ('16314-3-1-triple', dj.AndList([
                 dict(animal_id=16314, session=3, scan_idx=1, pipe_version=1, segmentation_method=3, spike_method=5),
-                'preproc_id in (0,1,2)'])),
+                'preproc_id in (0,1,2)'])),  # 8
             ('16314-3-1', [
                 dict(animal_id=16314, session=3, scan_idx=1, preproc_id=0, pipe_version=1, segmentation_method=3,
-                     spike_method=5)]),
+                     spike_method=5)]),  # 9
             ('18142-platinum', [
-                dict(animal_id=18142, pipe_version=1, segmentation_method=3, spike_method=5)]),
+                dict(animal_id=18142, pipe_version=1, segmentation_method=3, spike_method=5)]),  # 10
             ('8973-golden', dj.AndList(['animal_id=8973 and session=1 and scan_idx in (2,3,4,5,6,9,11,12)',
-                                        dict(pipe_version=1, segmentation_method=3, spike_method=5, preproc_id=0)]))
+                                        dict(pipe_version=1, segmentation_method=3, spike_method=5, preproc_id=0)])),
+            ('18979-2-7-jiakun',
+             dict(animal_id=18979, session=2, scan_idx=7, pipe_version=1, segmentation_method=3, spike_method=5)),
+            ('18799-3-14-jiakun',
+             dict(animal_id=18799, session=3, scan_idx=14, pipe_version=1, segmentation_method=3, spike_method=5)),
+            ('18142-all', dict(animal_id=18142, pipe_version=1, segmentation_method=3, spike_method=5, preproc_id=0)),
+            ('18142-5-2',
+             [dict(animal_id=18142, session=5, scan_idx=2, preproc_id=0, pipe_version=1,
+                   segmentation_method=3, spike_method=5)]),
+            ('18142-5-5',
+             [dict(animal_id=18142, session=5, scan_idx=5, preproc_id=0, pipe_version=1,
+                   segmentation_method=3, spike_method=5)]),
+            ('18142-6-5',
+             [dict(animal_id=18142, session=6, scan_idx=5, preproc_id=0, pipe_version=1,
+                   segmentation_method=3, spike_method=5)]),
+            ('17797-8-5-and-16314-3-1',
+             [dict(animal_id=17797, session=8, scan_idx=5, preproc_id=0, pipe_version=1, segmentation_method=3,
+                     spike_method=5),
+              dict(animal_id=16314, session=3, scan_idx=1, preproc_id=0, pipe_version=1, segmentation_method=3,
+                   spike_method=5)
+              ]),
         ]
         for group_id, (descr, key) in enumerate(selection):
             entry = dict(group_id=group_id, description=descr)
@@ -762,6 +801,11 @@ class MovieMultiDataset(dj.Manual):
             ])
         return ret
 
+    def cache_data(self):
+        for key in self:
+            log.info('Checking'+ pformat(key, indent=10))
+            self.fetch_data(key)
+
 
 class AttributeTransformer:
     def __init__(self, name, h5_handle, transforms):
@@ -774,7 +818,7 @@ class AttributeTransformer:
         if not item in self.h5_handle[self.name]:
             raise AttributeError('{} is not among the attributes'.format(item))
         else:
-            ret = self.h5_handle[self.name][item].value
+            ret = self.h5_handle[self.name][item][()]
             if ret.dtype.char == 'S':  # convert bytes to univcode
                 ret = ret.astype(str)
             for tr in self.transforms:
@@ -804,14 +848,14 @@ class MovieSet(H5SequenceSet):
         if stats_source is None:
             stats_source = self.stats_source
 
-        tmp = [np.atleast_1d(self.statistics['{}/{}/mean'.format(dk, stats_source)].value)
+        tmp = [np.atleast_1d(self.statistics['{}/{}/mean'.format(dk, stats_source)][()])
                for dk in self.data_groups]
         return self.transform(self.data_point(*tmp), exclude=Subsequence)
 
     def rf_base(self, stats_source='all'):
         N, c, t, w, h = self.img_shape
         t = min(t, 150)
-        mean = lambda dk: self.statistics['{}/{}/mean'.format(dk, stats_source)].value
+        mean = lambda dk: self.statistics['{}/{}/mean'.format(dk, stats_source)][()]
         d = dict(
             inputs=np.ones((1, c, t, w, h)) * np.array(mean('inputs')),
             eye_position=np.ones((1, t, 1)) * mean('eye_position')[None, None, :],
@@ -835,7 +879,7 @@ class MovieSet(H5SequenceSet):
 
         """
         N, c, _, w, h = self.img_shape
-        stat = lambda dk, what: self.statistics['{}/{}/{}'.format(dk, stats_source, what)].value
+        stat = lambda dk, what: self.statistics['{}/{}/{}'.format(dk, stats_source, what)][()]
         mu, s = stat('inputs', 'mean'), stat('inputs', 'std')
         h_filt = np.float64([
             [1 / 16, 1 / 8, 1 / 16],

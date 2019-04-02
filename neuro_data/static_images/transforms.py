@@ -32,6 +32,7 @@ class Normalizer(DataTransform, Invertible):
         self.buggy = buggy
         self.normalize_per_image = normalize_per_image
 
+
         self._inputs_mean = data.statistics['images/{}/mean'.format(stats_source)].value
 
         if self.buggy:
@@ -39,6 +40,7 @@ class Normalizer(DataTransform, Invertible):
             self._inputs_std = data.statistics['images/{}/mean'.format(stats_source)].value
         else:
             self._inputs_std = data.statistics['images/{}/std'.format(stats_source)].value
+
 
         s = np.array(data.statistics['responses/{}/std'.format(stats_source)])
 
