@@ -35,6 +35,5 @@ class StaticImageSet(H5ArraySet):
 
 
     def __repr__(self):
-
         return super().__repr__() + \
             ('\n\t[Stats source: {}]'.format(self.stats_source) if self.stats_source is not None else '')

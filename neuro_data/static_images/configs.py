@@ -7,9 +7,10 @@ from .data_schemas import StaticMultiDataset
 from .transforms import Subsample, Normalizer, ToTensor
 from ..utils.sampler import SubsetSequentialSampler, BalancedSubsetSampler
 from ..utils.config import ConfigBase
+from ..common import configs as common_configs
 import datajoint as dj
 from .. import logger as log
-
+import warnings
 import numpy as np
 from torch.utils.data import DataLoader
 
@@ -19,23 +20,58 @@ anatomy = dj.create_virtual_module('anatomy', 'pipeline_anatomy')
 schema = dj.schema('neurodata_static_configs', locals())
 
 
-class StimulusTypeMixin:
-    _stimulus_type = None
+class BackwardCompatibilityMixin:
+    """
+    Backward compatibility layer: namely use of the buggy Normalizer
+    """
 
-    # TODO: add normalize option
-    def add_transforms(self, key, datasets, exclude=None):
+    @staticmethod
+    def add_transforms(key, datasets, exclude=None):
+        warnings.warn('You are using an outdated `add_transform` kept for backward compatibility. Do not use this in new networks.')
         if exclude is not None:
             log.info('Excluding "{}" from normalization'.format(
                 '", "'.join(exclude)))
         for k, dataset in datasets.items():
             transforms = []
-            transforms.extend([Normalizer(
-                dataset, stats_source=key['stats_source'], exclude=exclude), ToTensor()])
+            if key['normalize']:
+                transforms.append(Normalizer(
+                    dataset, stats_source=key['stats_source'],
+                    buggy=True, normalize_per_image=True, exclude=exclude))
+            transforms.append(ToTensor())
             dataset.transforms = transforms
 
         return datasets
 
-    def get_constraint(self, dataset, stimulus_type, tier=None):
+class StimulusTypeMixin:
+    _stimulus_type = None
+
+    @staticmethod
+    def add_transforms(key, datasets, exclude=None):
+        if exclude is not None:
+            log.info('Excluding "{}" from normalization'.format(
+                '", "'.join(exclude)))
+        for k, dataset in datasets.items():
+            transforms = []
+
+            if key.get('normalize', True):
+                transforms.append(Normalizer(
+                    dataset,
+                    stats_source=key.get('stats_source', 'all'),
+                    normalize_per_image=key.get('normalize_per_image', False),
+                    exclude=exclude))
+            transforms.append(ToTensor())
+            dataset.transforms = transforms
+
+        return datasets
+
+    @staticmethod
+    def get_constraint(dataset, stimulus_type, tier=None):
+        """
+        Find subentries of dataset that matches the given `stimulus_type` specification and `tier` specification.
+        `stimulus_type` is of the format `stimulus.Frame|~stimulus.Monet|...`. This function returns a boolean array
+        suitable to be used for boolean indexing to obtain only entries with data types and tiers matching the
+        specified condition.
+        """
         constraint = np.zeros(len(dataset.types), dtype=bool)
         for const in map(lambda s: s.strip(), stimulus_type.split('|')):
             if const.startswith('~'):
@@ -49,7 +85,19 @@ class StimulusTypeMixin:
             constraint = constraint & (dataset.tiers == tier)
         return constraint
 
-    def get_sampler_class(self, tier, balanced=False):
+    @staticmethod
+    def get_sampler_class(tier, balanced=False):
+        """
+        Given data `tier` return a default Sampler class suitable for that tier. If `tier="train"` and `balanced=True`,
+        returns BalancedSubsetSampler
+        Args:
+            tier: dataset tier - 'train', 'validation', 'test', or None
+            balanced: if True and tier='train', returns balanced version
+
+        Returns:
+            A subclass of Sampler
+
+        """
         assert tier in ['train', 'validation', 'test', None]
         if tier == 'train':
             if not balanced:
@@ -60,7 +108,11 @@ class StimulusTypeMixin:
             Sampler = SubsetSequentialSampler
         return Sampler
 
-    def log_loader(self, loader):
+    @staticmethod
+    def log_loader(loader):
+        """
+        A helper function that when given an instance of DataLoader, print out a log detailing its configuration
+        """
         log.info('Loader sampler is {}'.format(
             loader.sampler.__class__.__name__))
         log.info('Number of samples in the loader will be {}'.format(
@@ -69,9 +121,24 @@ class StimulusTypeMixin:
             'Number of batches in the loader will be {}'.format(int(np.ceil(len(loader.sampler) / loader.batch_size))))
 
     def get_loaders(self, datasets, tier, batch_size, stimulus_types, Sampler):
+        """
+
+        Args:
+            datasets: a dictionary of H5ArrayDataSets
+            tier: tier of data to be loaded. Can be 'train', 'validation', 'test', or None
+            batch_size: size of a batch to be returned by the data loader
+            stimulus_types: stimulus type specification like 'stimulus.Frame|~stimulus.Monet'
+            Sampler: sampler to be placed on the data loader. If None, defaults to a sampler chosen based on the tier
+
+        Returns:
+            A dictionary of DataLoader's, key paired to each dataset
+        """
+
+        # if Sampler not given, use a default one specified for each tier
         if Sampler is None:
             Sampler = self.get_sampler_class(tier)
 
+        # if only a single stimulus_types string was given, apply to all datasets
         if not isinstance(stimulus_types, list):
             log.info('Using {} as stimulus type for all datasets'.format(
                 stimulus_types))
@@ -109,8 +176,10 @@ class StimulusTypeMixin:
                 dat.stats_source = key['stats_source']
 
         log.info('Using statistics source ' + key['stats_source'])
+
         datasets = self.add_transforms(
             key, datasets, exclude=exclude_from_normalization)
+
         loaders = self.get_loaders(
             datasets, tier, batch_size, stimulus_types, Sampler)
         return datasets, loaders
@@ -127,13 +196,17 @@ class AreaLayerRawMixin(StimulusTypeMixin):
                                               stimulus_types=stimulus_types,
                                               Sampler=Sampler)
 
-        log.info(
-            'Subsampling to layer "{layer}" and area "{brain_area}"'.format(**key))
+        log.info('Subsampling to layer {} and area(s) "{}"'.format(key['layer'],
+                                                                   key.get('brain_area') or key['brain_areas']))
         for readout_key, dataset in datasets.items():
             layers = dataset.neurons.layer
             areas = dataset.neurons.area
-            idx = np.where((layers == key['layer']) & (
-                areas == key['brain_area']))[0]
+
+            layer_idx = (layers == key['layer'])
+            desired_areas = ([key['brain_area'], ] if 'brain_area' in key else
+                             (common_configs.BrainAreas.BrainArea & key).fetch('brain_area'))
+            area_idx = np.stack([areas == da for da in desired_areas]).any(axis=0)
+            idx = np.where(layer_idx & area_idx)[0]
             if len(idx) == 0:
                 log.warning('Empty set of neurons. Deleting this key')
                 del datasets[readout_key]
@@ -141,7 +214,6 @@ class AreaLayerRawMixin(StimulusTypeMixin):
             else:
                 dataset.transforms.insert(-1, Subsample(idx))
         return datasets, loaders
-
 
 class AreaLayerNoiseMixin(AreaLayerRawMixin):
     def load_data(self, key, balanced=False, **kwargs):
@@ -239,7 +311,63 @@ class DataConfig(ConfigBase, dj.Lookup):
 
         return datasets, loaders
 
-    class AreaLayer(dj.Part, AreaLayerRawMixin):
+    class CorrectedAreaLayer(dj.Part, AreaLayerRawMixin):
+        definition = """
+        -> master
+        ---
+        stats_source            : varchar(50)   # normalization source
+        stimulus_type           : varchar(50)   # type of stimulus
+        exclude                 : varchar(512)  # what inputs to exclude from normalization
+        normalize               : bool          # whether to use a normalizer or not
+        normalize_per_image     : bool          # whether to normalize each input separately
+        -> experiment.Layer
+        -> anatomy.Area
+        """
+
+        def describe(self, key):
+            return "{brain_area} {layer} on {stimulus_type}. normalize={normalize} on {stats_source} (except '{exclude}')".format(
+                **key)
+
+        @property
+        def content(self):
+            for p in product(['all'],
+                             ['stimulus.Frame', '~stimulus.Frame'],
+                             ['images,responses', ''],
+                             [True],
+                             [True, False],
+                             ['L4', 'L2/3'],
+                             ['V1', 'LM']):
+                yield dict(zip(self.heading.dependent_attributes, p))
+
+    class MultipleAreasOneLayer(dj.Part, AreaLayerRawMixin):
+        definition = """
+        -> master
+        ---
+        stats_source                : varchar(50)   # normalization source
+        stimulus_type               : varchar(50)   # type of stimulus
+        exclude                     : varchar(512)  # what inputs to exclude from normalization
+        normalize                   : bool          # whether to use a normalizer or not
+        normalize_per_image         : bool          # whether to normalize each input separately
+        -> experiment.Layer
+        -> common_configs.BrainAreas
+        """
+        def describe(self, key):
+            return ('{brain_areas} {layer} on {stimulus_type}. normalize={normalize} on '
+                    '{stats_source} (except "{exclude}")').format(**key)
+
+        @property
+        def content(self):
+            for p in product(['all'],
+                             ['stimulus.Frame', '~stimulus.Frame'],
+                             ['images,responses', ''],
+                             [True],
+                             [True, False],
+                             ['L4', 'L2/3'],
+                             ['all-unknown']):
+                yield dict(zip(self.heading.dependent_attributes, p))
+
+    ############ Below are data configs that were using the buggy normalizer #################
+    class AreaLayer(dj.Part, BackwardCompatibilityMixin, AreaLayerRawMixin):
         definition = """
         -> master
         ---
@@ -265,7 +393,7 @@ class DataConfig(ConfigBase, dj.Lookup):
                              ['V1', 'LM']):
                 yield dict(zip(self.heading.dependent_attributes, p))
 
-    class AreaLayerPercentOracle(dj.Part, AreaLayerRawMixin):
+    class AreaLayerPercentOracle(dj.Part, BackwardCompatibilityMixin, AreaLayerRawMixin):
         definition = """
         -> master
         ---
@@ -358,7 +486,7 @@ class DataConfig(ConfigBase, dj.Lookup):
                               units[selection]), 'Units are inconsistent'
             return datasets, loaders
 
-    class AreaLayerNoise(dj.Part, AreaLayerNoiseMixin):
+    class AreaLayerNoise(dj.Part, BackwardCompatibilityMixin, AreaLayerNoiseMixin):
         definition = """
         -> master
         ---
@@ -393,7 +521,7 @@ class DataConfig(ConfigBase, dj.Lookup):
         def load_data(self, key, **kwargs):
             return super().load_data(key, balanced=False, **kwargs)
 
-    class AreaLayerNoiseBalanced(dj.Part, AreaLayerNoiseMixin):
+    class AreaLayerNoiseBalanced(dj.Part, BackwardCompatibilityMixin, AreaLayerNoiseMixin):
         definition = """
         -> master
         ---

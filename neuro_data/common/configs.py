@@ -1,5 +1,3 @@
-from collections import OrderedDict
-
 import datajoint as dj
 
 anatomy = dj.create_virtual_module('anatomy', 'pipeline_anatomy')
@@ -9,7 +7,7 @@ schema = dj.schema('neurodata_configs', locals())
 
 @schema
 class BrainAreas(dj.Lookup):
-    definition = """
+    definition = """ # group of brain areas
     brain_areas                 : varchar(256)
     """
 
