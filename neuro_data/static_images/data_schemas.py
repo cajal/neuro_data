@@ -86,6 +86,7 @@ MEI_STATIC = [
     '(animal_id=21067 AND session=12 AND scan_idx=15)', # loop 5 day 4 (Fri) repeat ImageNet
     # '(animal_id=21067 AND session=13 AND scan_idx=10)', # loop 5 day 5 (Mon) Masked MEI vs Unmasked Imagenet
     '(animal_id=21067 AND session=13 AND scan_idx=14)', # loop 5 day 5 (Mon) repeat ImageNet
+    '(animal_id=21067 AND session=15 AND scan_idx=9)', # loop 5 day x (Mon), 360 images x 20 repeatitions
 ]
 
 STATIC = STATIC + MEI_STATIC
@@ -931,6 +932,7 @@ class StaticMultiDataset(dj.Manual):
             ('20892-6-24', dict(animal_id=20892, session=6, scan_idx=24, preproc_id=0)),
             ('20505-10-14-gamma', dict(animal_id=20505, session=10, scan_idx=14, preproc_id=3)),
             ('21067-9-17', dict(animal_id=21067, session=9, scan_idx=17, preproc_id=0)),
+            ('21067-15-9', dict(animal_id=21067, session=15, scan_idx=9, preproc_id=0)),
         ]
         for group_id, (descr, key) in enumerate(selection):
             entry = dict(group_id=group_id, description=descr)
