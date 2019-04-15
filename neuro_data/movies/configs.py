@@ -55,9 +55,6 @@ class StimulusTypeMixin:
             log.info('Excluding "' + '", "'.join(exclude) +
                      '" from normalization')
         for k, dataset in datasets.items():
-            # for ex in exclude:
-            #     assert ex in dataset.data_groups, '{} not in data_groups'.format(
-            #         ex)
             transforms = []
             if 'seq_len' in key and key['seq_len'] is not None:
                 transforms.append(Subsequence(key['seq_len']))
@@ -286,7 +283,10 @@ class AreaLayerReliableMixin(AreaLayerMixin):
             pformat(kwargs, indent=20), self.__class__.__name__))
 
         from .stats import BootstrapOracleTTest
-        key['seq_len'] = seq_len if frames_per_tstep is None else seq_len * frames_per_tstep
+        if seq_len is None:
+            key['seq_len'] = seq_len
+        else:
+            key['seq_len'] = seq_len if frames_per_tstep is None else seq_len * frames_per_tstep
         assert tier in [None, 'train', 'validation', 'test']
         datasets, loaders = super().load_data(
             key, tier=tier, batch_size=batch_size, Sampler=Sampler,
