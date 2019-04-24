@@ -74,7 +74,7 @@ MEI_STATIC = [
     '(animal_id=20892 AND session=9 AND scan_idx=10)',  # loop 4 day x (Thu, Feb 7) ImageNet, big FOV, single depth
     '(animal_id=20892 AND session=9 AND scan_idx=11)',  # loop 4 day x (Thu, Feb 7) ImageNet, big FOV, single depth
     '(animal_id=20892 AND session=10 AND scan_idx=10)',  # loop 4 day x (Tue, Feb 12) ImageNet, higher visual areas
-    '(animal_id=20892 AND session=10 AND scan_idx=14)',  # loop 4 day x (Tue, Feb 12) ImageNet, higher visual areas
+    #'(animal_id=20892 AND session=10 AND scan_idx=14)',  # loop 4 day x (Tue, Feb 12) ImageNet, higher visual areas, buble
 
     '(animal_id=21067 AND session=9 AND scan_idx=17)',  # loop 5 day 1 (Tue) source ImageNet
     # '(animal_id=21067 AND session=9 AND scan_idx=23)',  # loop 5 day 1 (Tue) ImageNet (alternative set of images), Sync failed, do not use
@@ -933,6 +933,7 @@ class StaticMultiDataset(dj.Manual):
             ('20505-10-14-gamma', dict(animal_id=20505, session=10, scan_idx=14, preproc_id=3)),
             ('21067-9-17', dict(animal_id=21067, session=9, scan_idx=17, preproc_id=0)),
             ('21067-15-9', dict(animal_id=21067, session=15, scan_idx=9, preproc_id=0)),
+            ('20892-10-10', dict(animal_id=20892, session=10, scan_idx=10, preproc_id=0))
         ]
         for group_id, (descr, key) in enumerate(selection):
             entry = dict(group_id=group_id, description=descr)
