@@ -37,3 +37,10 @@ class StaticImageSet(H5ArraySet):
     def __repr__(self):
         return super().__repr__() + \
             ('\n\t[Stats source: {}]'.format(self.stats_source) if self.stats_source is not None else '')
+
+
+    def __getitem__(self, item):
+        x = self.data_point(*(getattr(self, '{}_override'.format(g))[item] if hasattr(self, '{}_override'.format(g)) else self._fid[g][item] for g in self.data_keys))
+        for tr in self.transforms:
+            x = tr(x)
+        return x

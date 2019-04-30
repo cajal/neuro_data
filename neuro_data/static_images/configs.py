@@ -13,11 +13,43 @@ from .. import logger as log
 import warnings
 import numpy as np
 from torch.utils.data import DataLoader
+import torch
+from tqdm import tqdm
+
+
+
+
+
 
 experiment = dj.create_virtual_module('experiment', 'pipeline_experiment')
 anatomy = dj.create_virtual_module('anatomy', 'pipeline_anatomy')
 
-schema = dj.schema('neurodata_static_configs', locals())
+schema = dj.schema('neurodata_static_configs')
+
+
+try:
+    models = dj.create_virtual_module('models', 'neurostatic_models')
+
+
+    @schema
+    class ModelCollection(dj.Lookup):
+        definition = """
+        model_collection_id: smallint   # collection id
+        ---
+        collection_description: varchar(255)  # description of the collection
+        """
+        contents = [(0, 'Best CNN model')]
+
+        class Entry(dj.Part):
+            definition = """
+            -> master
+            -> StaticMultiDataset
+            ---
+            -> models.Model
+            """
+except:
+    pass
+
 
 
 class BackwardCompatibilityMixin:
@@ -215,6 +247,53 @@ class AreaLayerRawMixin(StimulusTypeMixin):
                 dataset.transforms.insert(-1, Subsample(idx))
         return datasets, loaders
 
+
+class AreaLayerModelMixin:
+    def load_data(self, key, prep_cuda=True, prep_batch_size=1, **kwargs):
+
+        from staticnet_experiments.models import Model
+        from staticnet_experiments import configs
+
+        entry_key = (ModelCollection.Entry.proj() & key).fetch1('KEY')
+        net_key = (Model & (ModelCollection.Entry & entry_key)).fetch1('KEY')
+
+
+        data_key = (DataConfig & (configs.NetworkConfig.CorePlusReadout & (Model & net_key))).fetch1('KEY')
+        data_key['group_id'] = key['group_id']
+        datasets, loaders = DataConfig().load_data(data_key, **kwargs)
+
+        net = Model().load_network(net_key)
+        net.eval()
+        if prep_cuda:
+            net.cuda()
+
+        for k, ds in datasets.items():
+            dl = DataLoader(ds, batch_size=prep_batch_size)
+            resp = []
+            for input, beh, eye, _ in tqdm(dl):
+                with torch.no_grad():
+                    if prep_cuda:
+                        input, beh, eye = input.cuda(), beh.cuda(), eye.cuda()
+                    resp.append(net(input, readout_key=k, behavior=beh, eye_pos=eye).data.cpu().numpy())
+
+            total_response = np.concatenate(resp, axis=0)
+
+            ds.responses_override = total_response
+
+            # also exclude responses from normalization because the model the model response already accounts for this
+            for t in ds.transforms:
+                if isinstance(t, Normalizer):
+                    if 'responses' not in t.exclude:
+                        t.exclude.append('responses')
+
+        return datasets, loaders
+
+
+
+
+
+
+
 class AreaLayerNoiseMixin(AreaLayerRawMixin):
     def load_data(self, key, balanced=False, **kwargs):
         tier = kwargs.pop('tier', None)
@@ -338,6 +417,22 @@ class DataConfig(ConfigBase, dj.Lookup):
                              ['L4', 'L2/3'],
                              ['V1', 'LM']):
                 yield dict(zip(self.heading.dependent_attributes, p))
+
+
+    class ModeledAreaLayer(dj.Part, AreaLayerModelMixin):
+        definition = """
+        -> master
+        ---
+        -> ModelCollection
+        """
+
+        @property
+        def content(self):
+            for p in [
+                (0,)
+            ]:
+                yield dict(zip(self.heading.dependent_attributes, p))
+
 
     class MultipleAreasOneLayer(dj.Part, AreaLayerRawMixin):
         definition = """
