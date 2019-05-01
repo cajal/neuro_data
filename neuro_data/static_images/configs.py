@@ -15,6 +15,7 @@ import numpy as np
 from torch.utils.data import DataLoader
 import torch
 from tqdm import tqdm
+from os import path
 
 
 
@@ -262,23 +263,36 @@ class AreaLayerModelMixin:
         data_key['group_id'] = key['group_id']
         datasets, loaders = DataConfig().load_data(data_key, **kwargs)
 
-        net = Model().load_network(net_key)
-        net.eval()
-        if prep_cuda:
-            net.cuda()
+        cache_path = '/external/model_resp_cache/{}-{}.pt'.format(key['group_id'], key['data_hash'])
+
+        if path.exists(cache_path):
+            # if cache exists, get saved responses loaded
+            total_response_dict = torch.load(cache_path)
+            print('Loaded data for {} {} from cache!'.format(key['group_id'], key['data_hash']))
+
+        else:
+            net = Model().load_network(net_key)
+            net.eval()
+            if prep_cuda:
+                net.cuda()
+
+            total_response_dict = {}
+            for k, ds in datasets.items():
+                dl = DataLoader(ds, batch_size=prep_batch_size)
+                resp = []
+                for input, beh, eye, _ in tqdm(dl):
+                    with torch.no_grad():
+                        if prep_cuda:
+                            input, beh, eye = input.cuda(), beh.cuda(), eye.cuda()
+                        resp.append(net(input, readout_key=k, behavior=beh, eye_pos=eye).data.cpu().numpy())
+
+                total_response_dict[k] = np.concatenate(resp, axis=0)
+
+            torch.save(total_response_dict, cache_path)
 
         for k, ds in datasets.items():
-            dl = DataLoader(ds, batch_size=prep_batch_size)
-            resp = []
-            for input, beh, eye, _ in tqdm(dl):
-                with torch.no_grad():
-                    if prep_cuda:
-                        input, beh, eye = input.cuda(), beh.cuda(), eye.cuda()
-                    resp.append(net(input, readout_key=k, behavior=beh, eye_pos=eye).data.cpu().numpy())
 
-            total_response = np.concatenate(resp, axis=0)
-
-            ds.responses_override = total_response
+            ds.responses_override = total_response_dict[k]
 
             # also exclude responses from normalization because the model the model response already accounts for this
             for t in ds.transforms:
