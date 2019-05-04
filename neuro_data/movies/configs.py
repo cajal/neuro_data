@@ -31,7 +31,7 @@ class DataLoaderTFirst(DataLoader):
                 lambda xf: xf[0].permute(2, 0, 1, 3, 4) if xf[1] == 'inputs' else xf[0].permute(1, 0, 2),
                 zip(x, self.dataset.data_point._fields)))
 
-            if self.frames_per_tstep is None:
+            if self.frames_per_tstep is None or self.frames_per_tstep == 1:
                 yield inputs, beh, eye_pos, targets
 
             else:
