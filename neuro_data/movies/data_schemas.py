@@ -61,6 +61,7 @@ MOVIESCANS = [  # '(animal_id=16278 and session=11 and scan_idx between 5 and 9)
     'animal_id=20458 and session=3 and scan_idx=5',
     # manolis data
     'animal_id=16314 and session=4 and scan_idx=3',
+    'animal_id=21067 and session=8 and scan_idx=9',
 ]
 
 

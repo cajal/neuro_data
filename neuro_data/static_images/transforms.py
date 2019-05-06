@@ -31,6 +31,7 @@ class Normalizer(DataTransform, Invertible):
         self.exclude = exclude or []
         self.buggy = buggy
         self.normalize_per_image = normalize_per_image
+        self.stats_source = stats_source
 
         self._inputs_mean = data.statistics['images/{}/mean'.format(stats_source)].value
         if self.buggy:
