@@ -73,7 +73,7 @@ MEI_STATIC = [
     '(animal_id=20892 AND session=6 AND scan_idx=24)',  # loop 4 day 4 (Fri) repeat ImageNet
     '(animal_id=20892 AND session=9 AND scan_idx=10)',  # loop 4 day x (Thu, Feb 7) ImageNet, big FOV, single depth
     '(animal_id=20892 AND session=9 AND scan_idx=11)',  # loop 4 day x (Thu, Feb 7) ImageNet, big FOV, single depth
-    '(animal_id=20892 AND session=10 AND scan_idx=10)',  # loop 4 day x (Tue, Feb 12) ImageNet, higher visual areas
+    '(animal_id=20892 AND session=10 AND scan_idx=10)',  # loop 4 day x (Tue, Feb 12) ImageNet, higher visual areas (V1+LM+AL+RL)
     #'(animal_id=20892 AND session=10 AND scan_idx=14)',  # loop 4 day x (Tue, Feb 12) ImageNet, higher visual areas, buble
 
     '(animal_id=21067 AND session=9 AND scan_idx=17)',  # loop 5 day 1 (Tue) source ImageNet
@@ -933,7 +933,14 @@ class StaticMultiDataset(dj.Manual):
             ('20505-10-14-gamma', dict(animal_id=20505, session=10, scan_idx=14, preproc_id=3)),
             ('21067-9-17', dict(animal_id=21067, session=9, scan_idx=17, preproc_id=0)),
             ('21067-15-9', dict(animal_id=21067, session=15, scan_idx=9, preproc_id=0)),
-            ('20892-10-10', dict(animal_id=20892, session=10, scan_idx=10, preproc_id=0))
+            ('20892-10-10', dict(animal_id=20892, session=10, scan_idx=10, preproc_id=0)),
+            ('20457-5-17', dict(animal_id=20457, session=5, scan_idx=17, preproc_id=0)),
+            ('20505-10-19', dict(animal_id=20505, session=10, scan_idx=19, preproc_id=0)),
+            ('20892-4-16', dict(animal_id=20892, session=4, scan_idx=16, preproc_id=0)),
+            ('21067-10-18', dict(animal_id=21067, session=10, scan_idx=18, preproc_id=0)),
+            ('21067-11-21', dict(animal_id=21067, session=11, scan_idx=21, preproc_id=0)),
+            ('21067-12-15', dict(animal_id=21067, session=12, scan_idx=15, preproc_id=0)),
+            ('21067-13-14', dict(animal_id=21067, session=13, scan_idx=14, preproc_id=0)),
         ]
         for group_id, (descr, key) in enumerate(selection):
             entry = dict(group_id=group_id, description=descr)
