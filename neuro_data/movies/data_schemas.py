@@ -20,7 +20,7 @@ from ..utils.data import SplineMovie, FilterMixin, SplineCurve, NaNSpline, fill_
 
 dj.config['external-data'] = dict(
     protocol='file',
-    location='/external/movie-data/')
+    location='/external7/movie-data/')
 
 STACKS = [
     dict(animal_id=17977, stack_session=2, stack_idx=8, pipe_version=1, volume_id=1, registration_method=2),
@@ -303,7 +303,7 @@ class MovieClips(dj.Computed, FilterMixin):
         self.insert1(dict(key, frames=movie.transpose([2, 0, 1]), sample_times=samps, fps0=frame_rate))
 
 
-@h5cached(os.environ.get('NEURO_MOVIES_DIR', '/external/cache/'), mode='groups', transfer_to_tmp=False,
+@h5cached(os.environ.get('NEURO_MOVIES_DIR', '/external7/cache/'), mode='groups', transfer_to_tmp=False,
           file_format='movies{animal_id}-{session}-{scan_idx}-pre{preproc_id}-pipe{pipe_version}-seg{segmentation_method}-spike{spike_method}.h5')
 @schema
 class InputResponse(dj.Computed, FilterMixin, TraceMixin):
