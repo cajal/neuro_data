@@ -551,13 +551,12 @@ class DataConfig(ConfigBase, dj.Lookup):
 
         def load_data(self, key, **kwargs):
             from neuro_data.movies.stats import Oracle
-            upstream_data_hash = (self & key).fetch1('upstream_data_hash')
-            upstream_key = dict(data_hash=upstream_data_hash, group_id=key['group_id'])
+            upstream_key = dict(data_hash=key['upstream_data_hash'], group_id=key['group_id'])
 
             assert len(Oracle.Pearson & upstream_key) > 0, \
                 'You forgot to populate Oracle for data_hash: {}, group_id: {}'.format(
                 upstream_key['data_hash'], upstream_key['group_id'])
-            datasets, loaders = DataConfig().load_data(upstream_key)
+            datasets, loaders = DataConfig().load_data(upstream_key, **kwargs)
 
             for dataset in datasets.values():
                 units = pd.DataFrame((Oracle.UnitPearson & upstream_key).fetch())
