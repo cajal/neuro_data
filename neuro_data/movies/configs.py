@@ -533,7 +533,7 @@ class DataConfig(ConfigBase, dj.Lookup):
                              ['inputs,responses', ''],
                              [True],
                              ['L2/3'],
-                             ['V1+LM+LI+AL+RL'],
+                             ['V1+LM+LI+AL+RL', 'V1+LM+AL+RL'],
                              [-3]):
                 yield dict(zip(self.heading.dependent_attributes, p))
 
