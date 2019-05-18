@@ -4,6 +4,7 @@ from pprint import pformat
 
 import datajoint as dj
 import numpy as np
+import pandas as pd
 from attorch.dataloaders import RepeatsBatchSampler
 from torch.utils.data import DataLoader
 from torch.utils.data.sampler import SubsetRandomSampler
@@ -278,7 +279,7 @@ class AreaLayerMixin(StimulusTypeMixin):
 
 class AreaLayerReliableMixin(AreaLayerMixin):
     def load_data(self, key, tier=None, batch_size=1, seq_len=None, Sampler=None, t_first=False,
-                  cuda=False, scale_input=False, train_iterations=None, frames_per_tstep=None, **kwargs):
+                  cuda=False, train_iterations=None, frames_per_tstep=None, **kwargs):
         log.info('Ignoring {} when loading {}'.format(
             pformat(kwargs, indent=20), self.__class__.__name__))
 
@@ -307,15 +308,11 @@ class AreaLayerReliableMixin(AreaLayerMixin):
                 units == dataset.neurons.unit_ids), 'order of neurons has changed'
             pval_thresh = np.power(10, float(key['p_val_power']))
             selection = pvals < pval_thresh
-            log.info('Subsampling to {} neurons with BootstrapOracleTTest p-val < {:.0E}'.format(
-                selection.sum(), pval_thresh))
-            dataset.transforms.insert(
-                -1, Subsample(np.where(selection)[0]))
-            if scale_input:
-                log.info('Scaling Input to [0, 1]')
-                dataset.transforms.insert(-1, ScaleInput())
-            assert np.all(dataset.neurons.unit_ids ==
-                          units[selection]), 'Units are inconsistent'
+            if selection.sum() < len(dataset.neurons.unit_ids):
+                log.info('Subsampling to {} neurons with BootstrapOracleTTest p-val < {:.0E}'.format(
+                    selection.sum(), pval_thresh))
+                dataset.transforms.insert(-1, Subsample(np.where(selection)[0]))
+                assert np.all(dataset.neurons.unit_ids == units[selection]), 'Units are inconsistent'
         return datasets, loaders
 
 
@@ -520,7 +517,6 @@ class DataConfig(ConfigBase, dj.Lookup):
         -> common_configs.BrainAreas
         p_val_power             : tinyint       # 10^(p_val_power) is p-val threshold
         """
-        _exclude_from_normalization = ['inputs', 'responses']
 
         def describe(self, key):
             return "Like AreaLayer but only neurons that have significantly different (p-val < {:.0E}) response-oracle correlations to the same stimuli vs different stimuli".format(
@@ -536,6 +532,52 @@ class DataConfig(ConfigBase, dj.Lookup):
                              ['V1+LM+LI+AL+RL', 'V1+LM+AL+RL'],
                              [-3]):
                 yield dict(zip(self.heading.dependent_attributes, p))
+
+    class BalancedAreas(dj.Part):
+        definition = """
+        -> master
+        ---
+        -> DataConfig.proj(upstream_data_hash='data_hash')
+        """
+
+        def describe(self, key):
+            return 'Balanced number of neurons across brain areas'
+
+        @property
+        def content(self):
+            data_hashes = ['b3562bd04a2d0adccbb04928315ff969']
+            for dh in data_hashes:
+                yield dict(upstream_data_hash=dh)
+
+        def load_data(self, key, **kwargs):
+            from neuro_data.movies.stats import Oracle
+            upstream_data_hash = (self & key).fetch1('upstream_data_hash')
+            upstream_key = dict(data_hash=upstream_data_hash, group_id=key['group_id'])
+
+            assert len(Oracle.Pearson & upstream_key) > 0, \
+                'You forgot to populate Oracle for data_hash: {}, group_id: {}'.format(
+                upstream_key['data_hash'], upstream_key['group_id'])
+            datasets, loaders = DataConfig().load_data(upstream_key)
+
+            for dataset in datasets.values():
+                units = pd.DataFrame((Oracle.UnitPearson & upstream_key).fetch())
+
+                areas_units = []
+                for area in np.unique(dataset.neurons.area):
+                    area_units = pd.DataFrame(dict(unit_id=dataset.neurons.unit_ids[dataset.neurons.area == area]))
+                    areas_units.append(area_units.merge(units, on='unit_id'))
+
+                units_per_area = min([len(df) for df in areas_units])
+                all_units = []
+                for area_df in areas_units:
+                    all_units += area_df.sort_values('pearson', ascending=False).iloc[:units_per_area].unit_id.to_list()
+
+                units_bool = np.isin(dataset.neurons.unit_ids, np.array(all_units))
+                unit_idx = np.where(units_bool)[0]
+                log.info('Subsampling to {} neurons for balanced areas'.format(unit_idx.size))
+                dataset.transforms.insert(-1, Subsample(unit_idx))
+
+            return datasets, loaders
 
     class AreaLayerSubset(dj.Part, StimulusTypeMixin):
         definition = """
