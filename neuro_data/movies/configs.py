@@ -558,13 +558,19 @@ class DataConfig(ConfigBase, dj.Lookup):
                 upstream_key['data_hash'], upstream_key['group_id'])
             datasets, loaders = DataConfig().load_data(upstream_key, **kwargs)
 
-            for dataset in datasets.values():
-                units = pd.DataFrame((Oracle.UnitPearson & upstream_key).fetch())
+            for rok, dataset in datasets.items():
+
+                member = MovieMultiDataset.Member & 'name="{}"'.format(rok)
+                oracle_key = DataConfig().proj() * member.proj() & upstream_key
+                oracle_units = pd.DataFrame((Oracle.UnitPearson & oracle_key).fetch())
+
+                assert np.all(dataset.neurons.unit_ids == oracle_units.unit_id.values), \
+                    'Mismatch between dataset unit ids and Oracle unit ids'
 
                 areas_units = []
                 for area in np.unique(dataset.neurons.area):
                     area_units = pd.DataFrame(dict(unit_id=dataset.neurons.unit_ids[dataset.neurons.area == area]))
-                    areas_units.append(area_units.merge(units, on='unit_id'))
+                    areas_units.append(area_units.merge(oracle_units, on='unit_id'))
 
                 units_per_area = min([len(df) for df in areas_units])
                 all_units = []
