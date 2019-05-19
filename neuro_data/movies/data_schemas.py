@@ -760,6 +760,12 @@ class MovieMultiDataset(dj.Manual):
               dict(animal_id=16314, session=3, scan_idx=1, preproc_id=0, pipe_version=1, segmentation_method=3,
                    spike_method=5)
               ]),
+            ('17797-8-5-and-18142-6-3',
+             [dict(animal_id=17797, session=8, scan_idx=5, preproc_id=0, pipe_version=1, segmentation_method=3,
+                     spike_method=5),
+              dict(animal_id=18142, session=6, scan_idx=3, preproc_id=0, pipe_version=1, segmentation_method=3,
+                   spike_method=5)
+              ]),
         ]
         for group_id, (descr, key) in enumerate(selection):
             entry = dict(group_id=group_id, description=descr)
