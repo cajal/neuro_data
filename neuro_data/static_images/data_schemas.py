@@ -20,12 +20,18 @@ dj.config['external-data'] = dict(
 # Day 3: 5-26 MEIs,  6-1 Repeat ImageNet
 # Day 4: 7-23 MEIs, 7-29 Repeat ImageNet
 STATIC = [
-    '(animal_id=11521 AND session=7 AND scan_idx in (1,2))',
-    '(animal_id=16157 AND session=5 AND scan_idx in (5,6))',
-    '(animal_id=11677 AND session=2 AND scan_idx=1)',
+    '(animal_id=11521 AND session=7 AND scan_idx=1)',
+    '(animal_id=11521 AND session=7 AND scan_idx=2)',
+    '(animal_id=16157 AND session=5 AND scan_idx=5)',
+    '(animal_id=16157 AND session=5 AND scan_idx=6)',
     '(animal_id=16312 AND session=3 AND scan_idx=20)',
     '(animal_id=18765 AND session=4 AND scan_idx=6)',
     '(animal_id=18765 AND session=7 AND scan_idx=17)',
+    '(animal_id=20892 AND session=9 AND scan_idx=10)',  # loop 4 day x (Thu, Feb 7) ImageNet, big FOV, single depth
+    '(animal_id=20892 AND session=9 AND scan_idx=11)',  # loop 4 day x (Thu, Feb 7) ImageNet, big FOV, single depth
+    '(animal_id=20892 AND session=10 AND scan_idx=10)',  # loop 4 day x (Tue, Feb 12) ImageNet, higher visual areas (V1+LM+AL+RL)
+    '(animal_id=21067 AND session=15 AND scan_idx=9)',  # 360 images x 20 repeatitions (for Zhe)
+    '(animal_id=21553 AND session=11 AND scan_idx=10)',  # ImageNet, higher visual areas (V1+LM+AL+RL)
 ]
 
 MEI_STATIC = [
@@ -39,7 +45,7 @@ MEI_STATIC = [
     '(animal_id=20457 AND session=5 AND scan_idx=9)',  # loop 1 day 1 (Thu) source ImageNet
     '(animal_id=20457 AND session=5 AND scan_idx=17)', # loop 1 day 1 (Thu) repeat ImageNet
     '(animal_id=20457 AND session=5 AND scan_idx=27)', # loop 1 day 1 (Thu) Monet
-    '(animal_id=20457 AND session=7 AND scan_idx=4)',  # loop 1 day 2 (Fri) MEI,
+    #'(animal_id=20457 AND session=7 AND scan_idx=4)',  # loop 1 day 2 (Fri) MEI, sync failed
     '(animal_id=20457 AND session=7 AND scan_idx=10)', # loop 1 day 2 (Fri) repeat ImageNet,
     '(animal_id=20457 AND session=7 AND scan_idx=16)', # loop 1 day 2 (Fri) Monet,
     '(animal_id=20457 AND session=8 AND scan_idx=9)',  # loop 1 day 3 (Mon) MEI,
@@ -48,7 +54,7 @@ MEI_STATIC = [
 
     '(animal_id=20505 AND session=10 AND scan_idx=14)',  # loop 2 day 1 (Tue) source ImageNet
     '(animal_id=20505 AND session=10 AND scan_idx=19)',  # loop 2 day 1 (Tue) repeat ImageNet
-    # '(animal_id=20505 AND session=11 AND scan_idx=7)',   # loop 2 day 2 (Wed) MEI - BAD: mouse not awake
+    #'(animal_id=20505 AND session=11 AND scan_idx=7)',   # loop 2 day 2 (Wed) MEI - BAD: mouse not awake
     '(animal_id=20505 AND session=11 AND scan_idx=16)',  # loop 2 day 2 (Wed) repeat ImageNet
     '(animal_id=20505 AND session=12 AND scan_idx=16)',  # loop 2 day 3 (Thu) MEI
     '(animal_id=20505 AND session=12 AND scan_idx=29)',  # loop 2 day 3 (Thu) repeat ImageNet
@@ -71,10 +77,6 @@ MEI_STATIC = [
     #'(animal_id=20892 AND session=5 AND scan_idx=29)',  # loop 4 day 3 (Thu) repeat ImageNet, mouse was sleep half of the time
     '(animal_id=20892 AND session=6 AND scan_idx=17)',  # loop 4 day 4 (Fri) MEI, small bubble
     '(animal_id=20892 AND session=6 AND scan_idx=24)',  # loop 4 day 4 (Fri) repeat ImageNet
-    '(animal_id=20892 AND session=9 AND scan_idx=10)',  # loop 4 day x (Thu, Feb 7) ImageNet, big FOV, single depth
-    '(animal_id=20892 AND session=9 AND scan_idx=11)',  # loop 4 day x (Thu, Feb 7) ImageNet, big FOV, single depth
-    '(animal_id=20892 AND session=10 AND scan_idx=10)',  # loop 4 day x (Tue, Feb 12) ImageNet, higher visual areas (V1+LM+AL+RL)
-    #'(animal_id=20892 AND session=10 AND scan_idx=14)',  # loop 4 day x (Tue, Feb 12) ImageNet, higher visual areas, buble
 
     '(animal_id=21067 AND session=9 AND scan_idx=17)',  # loop 5 day 1 (Tue) source ImageNet
     # '(animal_id=21067 AND session=9 AND scan_idx=23)',  # loop 5 day 1 (Tue) ImageNet (alternative set of images), Sync failed, do not use
@@ -86,7 +88,6 @@ MEI_STATIC = [
     '(animal_id=21067 AND session=12 AND scan_idx=15)', # loop 5 day 4 (Fri) repeat ImageNet
     # '(animal_id=21067 AND session=13 AND scan_idx=10)', # loop 5 day 5 (Mon) Masked MEI vs Unmasked Imagenet
     '(animal_id=21067 AND session=13 AND scan_idx=14)', # loop 5 day 5 (Mon) repeat ImageNet
-    '(animal_id=21067 AND session=15 AND scan_idx=9)', # loop 5 day x (Mon), 360 images x 20 repeatitions
 ]
 
 STATIC = STATIC + MEI_STATIC
@@ -715,7 +716,9 @@ class BehaviorMixin:
         return (stimulus.Sync() & key).fetch1('frame_times').squeeze()[::ndepth]
 
     def load_eye_traces(self, key):
-        r, center = (pupil.FittedContour.Ellipse() & key).fetch('major_r', 'center', order_by='frame_id ASC')
+        #r, center = (pupil.FittedPupil.Ellipse() & key).fetch('major_r', 'center', order_by='frame_id ASC')
+        r, center = (pupil.FittedPupil.Circle() & key).fetch('radius', 'center',
+                                                             order_by='frame_id')
         detectedFrames = ~np.isnan(r)
         xy = np.full((len(r), 2), np.nan)
         xy[detectedFrames, :] = np.vstack(center[detectedFrames])
@@ -751,8 +754,8 @@ class Eye(dj.Computed, FilterMixin, BehaviorMixin):
     # eye movement data
 
     -> InputResponse
-    -> pupil.FittedContour
     ---
+    -> pupil.FittedPupil                 # tracking_method as a secondary attribute
     pupil              : external-data   # pupil dilation trace
     dpupil             : external-data   # derivative of pupil dilation trace
     center             : external-data   # center position of the eye
@@ -761,9 +764,10 @@ class Eye(dj.Computed, FilterMixin, BehaviorMixin):
 
     @property
     def key_source(self):
-        return InputResponse & pupil.FittedContour & stimulus.BehaviorSync
+        return InputResponse & pupil.FittedPupil & stimulus.BehaviorSync
 
     def make(self, scan_key):
+        scan_key = {**scan_key, 'tracking_method': 2}
         log.info('Populating '+ pformat(scan_key))
         radius, xy, eye_time = self.load_eye_traces(scan_key)
         frame_times = self.load_frame_times(scan_key)
@@ -941,6 +945,7 @@ class StaticMultiDataset(dj.Manual):
             ('21067-11-21', dict(animal_id=21067, session=11, scan_idx=21, preproc_id=0)),
             ('21067-12-15', dict(animal_id=21067, session=12, scan_idx=15, preproc_id=0)),
             ('21067-13-14', dict(animal_id=21067, session=13, scan_idx=14, preproc_id=0)),
+            ('21553-11-10', dict(animal_id=21553, session=11, scan_idx=10, preproc_id=0)),
         ]
         for group_id, (descr, key) in enumerate(selection):
             entry = dict(group_id=group_id, description=descr)
