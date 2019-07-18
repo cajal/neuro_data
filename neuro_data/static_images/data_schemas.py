@@ -27,11 +27,7 @@ STATIC = [
     '(animal_id=16312 AND session=3 AND scan_idx=20)',
     '(animal_id=18765 AND session=4 AND scan_idx=6)',
     '(animal_id=18765 AND session=7 AND scan_idx=17)',
-    '(animal_id=20892 AND session=9 AND scan_idx=10)',  # loop 4 day x (Thu, Feb 7) ImageNet, big FOV, single depth
-    '(animal_id=20892 AND session=9 AND scan_idx=11)',  # loop 4 day x (Thu, Feb 7) ImageNet, big FOV, single depth
-    '(animal_id=20892 AND session=10 AND scan_idx=10)',  # loop 4 day x (Tue, Feb 12) ImageNet, higher visual areas (V1+LM+AL+RL)
     '(animal_id=21067 AND session=15 AND scan_idx=9)',  # 360 images x 20 repeatitions (for Zhe)
-    '(animal_id=21553 AND session=11 AND scan_idx=10)',  # ImageNet, higher visual areas (V1+LM+AL+RL)
 ]
 
 MEI_STATIC = [
@@ -90,7 +86,17 @@ MEI_STATIC = [
     '(animal_id=21067 AND session=13 AND scan_idx=14)', # loop 5 day 5 (Mon) repeat ImageNet
 ]
 
-STATIC = STATIC + MEI_STATIC
+HIGHER_AREAS = [
+    '(animal_id=20892 AND session=9 AND scan_idx=10)', # ImageNet, single depth, big FOV, mostly V1
+    '(animal_id=20892 AND session=9 AND scan_idx=11)', # ImageNet, single depth, big FOV, mostly V1
+    '(animal_id=20892 AND session=10 AND scan_idx=10)', # ImageNet, V1+LM+AL+RL in a single rectangular FOV
+    '(animal_id=21553 AND session=11 AND scan_idx=10)', # ImageNet, V1+LM+AL+RL in a single rectangular FOV
+    '(animal_id=21844 AND session=2 AND scan_idx=12)', # ImageNet, V1+LM+AL+RL in four distinct rois
+    '(animal_id=22085 AND session=2 AND scan_idx=20)', # ImageNet, V1+LM+AL+RL in four distinct rois
+    '(animal_id=22083 AND session=7 AND scan_idx=21)', # ImageNet, V1+LM+AL+RL in four distinct rois
+]
+
+STATIC = STATIC + MEI_STATIC + HIGHER_AREAS
 
 # set of attributes that uniquely identifies the frame content
 UNIQUE_FRAME = {
@@ -946,6 +952,7 @@ class StaticMultiDataset(dj.Manual):
             ('21067-12-15', dict(animal_id=21067, session=12, scan_idx=15, preproc_id=0)),
             ('21067-13-14', dict(animal_id=21067, session=13, scan_idx=14, preproc_id=0)),
             ('21553-11-10', dict(animal_id=21553, session=11, scan_idx=10, preproc_id=0)),
+            ('20892-9-11', dict(animal_id=20892, session=9, scan_idx=11, preproc_id=0)),
         ]
         for group_id, (descr, key) in enumerate(selection):
             entry = dict(group_id=group_id, description=descr)
