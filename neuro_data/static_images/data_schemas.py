@@ -953,6 +953,9 @@ class StaticMultiDataset(dj.Manual):
             ('21067-13-14', dict(animal_id=21067, session=13, scan_idx=14, preproc_id=0)),
             ('21553-11-10', dict(animal_id=21553, session=11, scan_idx=10, preproc_id=0)),
             ('20892-9-11', dict(animal_id=20892, session=9, scan_idx=11, preproc_id=0)),
+            ('21844-2-12', dict(animal_id=21844, session=2, scan_idx=12, preproc_id=0)),
+            ('22085-2-20', dict(animal_id=22085, session=2, scan_idx=20, preproc_id=0)),
+            ('22083-7-21', dict(animal_id=22083, session=7, scan_idx=21, preproc_id=0)),
         ]
         for group_id, (descr, key) in enumerate(selection):
             entry = dict(group_id=group_id, description=descr)
