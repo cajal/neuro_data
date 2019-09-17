@@ -84,7 +84,13 @@ MEI_STATIC = [
     '(animal_id=21067 AND session=12 AND scan_idx=15)', # loop 5 day 4 (Fri) repeat ImageNet
     # '(animal_id=21067 AND session=13 AND scan_idx=10)', # loop 5 day 5 (Mon) Masked MEI vs Unmasked Imagenet
     '(animal_id=21067 AND session=13 AND scan_idx=14)', # loop 5 day 5 (Mon) repeat ImageNet
+
+    '(animal_id=22564 AND session=2 AND scan_idx=12)', # loop 6 day 1 (Mon) ImageNet collection 2 (same as the ones we use above)
+    '(animal_id=22564 AND session=2 AND scan_idx=13)', # loop 6 day 1 (Mon) ImageNet collection 3
+    '(animal_id=22564 AND session=3 AND scan_idx=8)', # loop 6 day 2 (Tue) Imagenet collection 4 (this one has the oracle images as part of the 5000 unique images, so they were presented 11 times)
+    '(animal_id=22564 AND session=3 AND scan_idx=12)', # loop 6 day 2 (Tue) Imagenet collection 6
 ]
+
 
 HIGHER_AREAS = [
     '(animal_id=20892 AND session=9 AND scan_idx=10)', # ImageNet, single depth, big FOV, mostly V1
@@ -92,8 +98,10 @@ HIGHER_AREAS = [
     '(animal_id=20892 AND session=10 AND scan_idx=10)', # ImageNet, V1+LM+AL+RL in a single rectangular FOV
     '(animal_id=21553 AND session=11 AND scan_idx=10)', # ImageNet, V1+LM+AL+RL in a single rectangular FOV
     '(animal_id=21844 AND session=2 AND scan_idx=12)', # ImageNet, V1+LM+AL+RL in four distinct rois
-    '(animal_id=22085 AND session=2 AND scan_idx=20)', # ImageNet, V1+LM+AL+RL in four distinct rois
+    #'(animal_id=22085 AND session=2 AND scan_idx=20)', # ImageNet, V1+LM+AL+RL in four distinct rois, no stack
     '(animal_id=22083 AND session=7 AND scan_idx=21)', # ImageNet, V1+LM+AL+RL in four distinct rois
+    '(animal_id=22083 AND session=6 AND scan_idx=18)', # ImageNet, V1+PM+AM in a single rectangular FOV
+    '(animal_id=22279 AND session=4 AND scan_idx=23)', # ImageNet, V1+PM in two distinct rois
 ]
 
 STATIC = STATIC + MEI_STATIC + HIGHER_AREAS
@@ -115,7 +123,7 @@ vis = dj.create_virtual_module('vis', 'pipeline_vis')
 maps = dj.create_virtual_module('maps', 'pipeline_map')
 shared = dj.create_virtual_module('shared', 'pipeline_shared')
 anatomy = dj.create_virtual_module('anatomy', 'pipeline_anatomy')
-mesonet = dj.create_virtual_module('mesonet', 'cortex_ex_machina_mesonet_data')
+#mesonet = dj.create_virtual_module('mesonet', 'cortex_ex_machina_mesonet_data')
 treadmill = dj.create_virtual_module('treadmill', 'pipeline_treadmill')
 
 schema = dj.schema('neurodata_static')
@@ -205,6 +213,59 @@ class ExcludedTrial(dj.Manual):
     exclusion_comment='': varchar(64)   # reasons for exclusion
     """
 
+# based on mesonet.MesoNetSplit
+@schema
+class ImageNetSplit(dj.Lookup):
+    definition = """ # split imagenet frames into train, test, validation
+
+    -> stimulus.StaticImage.Image
+    ---
+    -> Tier
+    """
+    def fill(self, scan_key):
+        """ Assign each imagenet frame in the current scan to train/test/validation set.
+
+        Arguments:
+            scan_key: An scan (animal_id, session, scan_idx) that has stimulus.Trials
+                created. Usually one where the stimulus was presented.
+
+        Note:
+            Each image is assigned to one set and that holds true for all our scans and
+            collections. Once an image has been assigned (and models have been trained
+            with that split), it cannot be changed in the future (this is problematic if
+            images are reused as those from collection 2 or collection 3 with a different
+            purpose).
+
+            The exact split assigned will depend on the scans used in fill and the order
+            that this table was filled. Not ideal.
+        """
+        # Get all image ids in this scan
+        all_frames = stimulus.Frame & (stimulus.Trial & scan_key) & {'image_class': 'imagenet'}
+        unique_frames = dj.U('image_id').aggr(all_frames, repeats='COUNT(image_id)')
+        image_ids = unique_frames.fetch('image_id', order_by='repeats DESC')
+        num_frames = len(image_ids)
+        # * NOTE: this fetches all oracle images first and the rest in a "random" order;
+        # we use that random order to make the validation/training division below.
+
+        # Get number of repeated frames
+        n = int(np.median(unique_frames.fetch('repeats')))  # HACK
+        num_oracles = len(unique_frames & 'repeats > {}'.format(n))  # repeats
+        if num_oracles == 0:
+            self.msg('Could not find repeated frames. Using 20% of the original set')
+            num_oracles = int(0.2 * num_frames)
+
+        # Compute number of validation examples
+        num_validation = int(np.ceil((num_frames - num_oracles) * 0.1))  # 10% validation examples
+
+        # Insert
+        self.insert([{'image_id': iid, 'image_class': 'imagenet', 'tier': 'test'} for iid
+                     in image_ids[:num_oracles]], skip_duplicates=True)
+        self.insert([{'image_id': iid, 'image_class': 'imagenet', 'tier': 'validation'}
+                     for iid in image_ids[num_oracles: num_oracles + num_validation]])
+        self.insert([{'image_id': iid, 'image_class': 'imagenet', 'tier': 'train'} for iid
+                     in image_ids[num_oracles + num_validation:]])
+
+
 @schema
 class ConditionTier(dj.Computed):
     definition = """
@@ -276,13 +337,10 @@ class ConditionTier(dj.Computed):
             if cond['stimulus_type'] == 'stimulus.Frame':
 
                 # deal with ImageNet frames first
-                log.info('Inserting assignment from Mesonet')
-                assignment = dj.U('tier', 'image_id') & (stimulus.Frame * mesonet.MesonetSplit.proj(tier='type') & 'image_class = "imagenet"')
-
-                targets = StaticScan * stimulus.Frame * assignment & (stimulus.Trial & key) & 'image_class = "imagenet"'
+                log.info('Inserting assignment from ImageNetSplit')
+                targets = StaticScan * stimulus.Frame * ImageNetSplit & (stimulus.Trial & key) & 'image_class = "imagenet"'
                 print('Inserting {} imagenet conditions!'.format(len(targets)))
-                self.insert(targets,
-                            ignore_extra_fields=True)
+                self.insert(targets, ignore_extra_fields=True)
 
                 # deal with MEI images, assigning tier test for all images
                 assignment = (stimulus.Frame() & 'image_class in ("cnn_mei", "lin_rf", "multi_cnn_mei", "multi_lin_rf")').proj(tier='"train"')
@@ -956,6 +1014,12 @@ class StaticMultiDataset(dj.Manual):
             ('21844-2-12', dict(animal_id=21844, session=2, scan_idx=12, preproc_id=0)),
             ('22085-2-20', dict(animal_id=22085, session=2, scan_idx=20, preproc_id=0)),
             ('22083-7-21', dict(animal_id=22083, session=7, scan_idx=21, preproc_id=0)),
+            ('22083-6-18', dict(animal_id=22083, session=6, scan_idx=18, preproc_id=0)),
+            ('22279-4-23', dict(animal_id=22279, session=4, scan_idx=23, preproc_id=0)),
+            ('22564-2-12', dict(animal_id=22564, session=2, scan_idx=12, preproc_id=0)),
+            ('22564-2-13', dict(animal_id=22564, session=2, scan_idx=13, preproc_id=0)),
+            ('22564-3-8', dict(animal_id=22564, session=3, scan_idx=8, preproc_id=0)),
+            ('22564-3-12', dict(animal_id=22564, session=3, scan_idx=12, preproc_id=0)),
         ]
         for group_id, (descr, key) in enumerate(selection):
             entry = dict(group_id=group_id, description=descr)
