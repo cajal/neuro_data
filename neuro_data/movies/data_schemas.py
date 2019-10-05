@@ -64,6 +64,15 @@ MOVIESCANS = [  # '(animal_id=16278 and session=11 and scan_idx between 5 and 9)
     'animal_id=21067 and session=8 and scan_idx=9',
 ]
 
+@schema
+class MovieScanCandidate(dj.Manual):
+    definition = """
+    -> fuse.ScanDone
+    ---
+    candidate_note='': varchar(1024)  # notes about the scan (if any)
+    """
+
+
 
 @schema
 class MovieScan(dj.Computed):
@@ -83,9 +92,9 @@ class MovieScan(dj.Computed):
         -> fuse.ScanSet.Unit
         """
 
-    key_source = (fuse.ScanDone() & MOVIESCANS & dict(segmentation_method=3,
+    key_source = (fuse.ScanDone() & MovieScanCandidate & dict(segmentation_method=3,
                                                       spike_method=5) & 'animal_id < 19000').proj() + \
-                 (fuse.ScanDone() & MOVIESCANS & dict(segmentation_method=6,
+                 (fuse.ScanDone() & MovieScanCandidate & dict(segmentation_method=6,
                                                       spike_method=5) & 'animal_id > 19000').proj()
 
     def _make_tuples(self, key):
@@ -244,8 +253,7 @@ class MovieClips(dj.Computed, FilterMixin):
                                  * stimulus.Clip() & key).fetch1('clip', 'frame_rate')
             vid = imageio.get_reader(io.BytesIO(movie.tobytes()), 'ffmpeg')
             # convert to grayscale and stack to movie in width x height x time
-            m = vid.get_length()
-            movie = np.stack([vid.get_data(i).mean(axis=-1) for i in range(m)], axis=2)
+            movie = np.stack([frame.mean(axis=-1) for frame in vid], axis=2)
         else:
             movie_rel = getattr(stimulus, stimulus_type.split('.')[-1])
             assert len(movie_rel() & key) == 1, 'key must specify exactly one clip'
@@ -393,17 +401,19 @@ class InputResponse(dj.Computed, FilterMixin, TraceMixin):
         pipe = dj.create_virtual_module(pipe, 'pipeline_' + pipe)
 
         # get data relation
-        include_behavior = bool(Eye() * Treadmill() & key)
+        # patch to deal with old eye tracking method
+        EyeTable = Eye2() if Eye2() & key else Eye()
+        include_behavior = bool(EyeTable * Treadmill() & key)
 
         # make sure that including areas does not decreas number of neurons
-        assert len(pipe.ScanSet.UnitInfo() * experiment.Layer() * anatomy.AreaMembership() & key) == \
+        assert len(pipe.ScanSet.UnitInfo() * experiment.Layer() * anatomy.AreaMembership() * anatomy.LayerMembership() & key) == \
                len(pipe.ScanSet.UnitInfo() * experiment.Layer() & key), "AreaMembership decreases number of neurons"
 
         data_rel = MovieClips() * ConditionTier() \
                    * self.Input() * self.ResponseBlock() * stimulus.Condition().proj('stimulus_type')
 
         if include_behavior:  # restrict trials to those that do not have NaNs in Treadmill or Eye
-            data_rel = data_rel & Eye & Treadmill
+            data_rel = data_rel & EyeTable & Treadmill
 
         response = self.ResponseKeys() * (pipe.ScanSet.UnitInfo() * experiment.Layer() * anatomy.AreaMembership()
                                           & key & '(um_z >= z_start) and (um_z < z_end)')
@@ -430,7 +440,7 @@ class InputResponse(dj.Computed, FilterMixin, TraceMixin):
                                                   "layer", "brain_area",
                                                   order_by='row_id ASC')
             if include_behavior:
-                pupil, dpupil, treadmill, center = (Eye() * Treadmill() & key
+                pupil, dpupil, treadmill, center = (EyeTable * Treadmill() & key
                                                     & stim_key).fetch1('pupil', 'dpupil', 'treadmill', 'center')
 
                 behavior.append(np.vstack([pupil, dpupil, treadmill]).T)
@@ -530,8 +540,28 @@ class InputResponse(dj.Computed, FilterMixin, TraceMixin):
 
 
 class BehaviorMixin:
-    def load_eye_traces(self, key):
+    def load_eye_traces_old(self, key):
+        """
+        Older method for loading eye traces, using FittedContour. Explicitly used by Eye2
+        """
         r, center = (pupil.FittedContour.Ellipse() & key).fetch('major_r', 'center', order_by='frame_id ASC')
+        detectedFrames = ~np.isnan(r)
+        xy = np.full((len(r), 2), np.nan)
+        xy[detectedFrames, :] = np.vstack(center[detectedFrames])
+        xy = np.vstack(map(partial(fill_nans, preserve_gap=3), xy.T))
+        if np.any(np.isnan(xy)):
+            log.info('Keeping some nans in the pupil location trace')
+        pupil_radius = fill_nans(r.squeeze(), preserve_gap=3)
+        if np.any(np.isnan(pupil_radius)):
+            log.info('Keeping some nans in the pupil radius trace')
+
+        eye_time = (pupil.Eye() & key).fetch1('eye_time').squeeze()
+        return pupil_radius, xy, eye_time
+
+    def load_eye_traces(self, key):
+        r, center = (pupil.FittedPupil.Circle() & key).fetch('radius', 'center',
+                                                             order_by='frame_id')
+        #r, center = (pupil.FittedContour.Ellipse() & key).fetch('major_r', 'center', order_by='frame_id ASC')
         detectedFrames = ~np.isnan(r)
         xy = np.full((len(r), 2), np.nan)
         xy[detectedFrames, :] = np.vstack(center[detectedFrames])
@@ -560,9 +590,78 @@ class BehaviorMixin:
         t, v = (treadmill.Treadmill() & key).fetch1('treadmill_time', 'treadmill_vel')
         return v.squeeze(), t.squeeze()
 
-
 @schema
 class Eye(dj.Computed, FilterMixin, BehaviorMixin):
+    definition = """
+    # eye movement data
+
+    -> InputResponse.Input
+    ---
+    -> pupil.FittedPupil
+    pupil              : external-data   # pupil dilation trace
+    dpupil             : external-data   # derivative of pupil dilation trace
+    center             : external-data   # center position of the eye
+    """
+
+    @property
+    def key_source(self):
+        return InputResponse & pupil.FittedPupil & stimulus.BehaviorSync
+
+    def _make_tuples(self, scan_key):
+        # pick out the "latest" tracking method to use for pupil info extraction
+        scan_key['tracking_method'] = (pupil.FittedPupil & scan_key).fetch('tracking_method', order_by='tracking_method')[-1]
+        log.info('Populating\n' + pformat(scan_key, indent=10))
+        radius, xy, eye_time = self.load_eye_traces(scan_key)
+        frame_times = InputResponse().load_frame_times(scan_key)
+        behavior_clock = self.load_behavior_timing(scan_key)
+
+        if len(frame_times) - len(behavior_clock) != 0:
+            assert abs(len(frame_times) - len(behavior_clock)) < 2, 'Difference bigger than 2 time points'
+            l = min(len(frame_times), len(behavior_clock))
+            log.info('Frametimes and stimulus.BehaviorSync differ in length! Shortening it.', depth=1)
+            frame_times = frame_times[:l]
+            behavior_clock = behavior_clock[:l]
+
+        fr2beh = NaNSpline(frame_times, behavior_clock, k=1, ext=3)
+        sampling_period = float((Preprocessing() & scan_key).proj(period='1/behavior_lowpass').fetch1('period'))
+        log.info('Downsampling eye signal to {}Hz'.format(1 / sampling_period))
+        deye = np.nanmedian(np.diff(eye_time))
+        h_eye = self.get_filter(sampling_period, deye, 'hamming', warning=True)
+        h_deye = self.get_filter(sampling_period, deye, 'dhamming', warning=True)
+        pupil_spline = NaNSpline(eye_time,
+                                 np.convolve(radius, h_eye, mode='same'), k=1, ext=0)
+
+        dpupil_spline = NaNSpline(eye_time,
+                                  np.convolve(radius, h_deye, mode='same'), k=1, ext=0)
+        center_spline = SplineCurve(eye_time,
+                                    np.vstack([np.convolve(coord, h_eye, mode='same') for coord in xy]),
+                                    k=1, ext=0)
+
+        flip_times, sample_times, trial_keys = \
+            (InputResponse.Input() * MovieClips() * stimulus.Trial() & scan_key).fetch('flip_times', 'sample_times',
+                                                                                       dj.key)
+        flip_times = [ft.squeeze() for ft in flip_times]
+        for trial_key, flips, samps in tqdm(zip(trial_keys, flip_times, sample_times),
+                                            total=len(trial_keys), desc='Trial '):
+            t = fr2beh(flips[0] + samps)
+            pupil_trace = pupil_spline(t)
+            dpupil = dpupil_spline(t)
+            center = center_spline(t)
+            nans = np.array([np.isnan(e).sum() for e in [pupil_trace, dpupil, center]])
+            if np.any(nans > 0):
+                log.info('Found {} NaNs in one of the traces. Skipping trial {}'.format(np.max(nans),
+                                                                                        pformat(trial_key, indent=5),
+                                                                                        ))
+            else:
+                self.insert1(dict(scan_key, **trial_key,
+                                  pupil=pupil_trace,
+                                  dpupil=dpupil,
+                                  center=center),
+                             ignore_extra_fields=True)
+
+
+@schema
+class Eye2(dj.Computed, FilterMixin, BehaviorMixin):
     definition = """
     # eye movement data
 
@@ -580,7 +679,7 @@ class Eye(dj.Computed, FilterMixin, BehaviorMixin):
 
     def _make_tuples(self, scan_key):
         log.info('Populating\n' + pformat(scan_key, indent=10))
-        radius, xy, eye_time = self.load_eye_traces(scan_key)
+        radius, xy, eye_time = self.load_eye_traces_old(scan_key)
         frame_times = InputResponse().load_frame_times(scan_key)
         behavior_clock = self.load_behavior_timing(scan_key)
 
@@ -782,7 +881,9 @@ class MovieMultiDataset(dj.Manual):
         for mkey in (self.Member() & key).fetch(dj.key,
                                                 order_by='animal_id ASC, session ASC, scan_idx ASC, preproc_id ASC'):
             name = (self.Member() & mkey).fetch1('name')
-            include_behavior = bool(Eye() * Treadmill() & mkey)
+            # patch to deal with transitioning from old manual tracking as stored in Eye2 to newer auto tracking in Eye
+            EyeTable = Eye2() if Eye2() & mkey else Eye()
+            include_behavior = bool(EyeTable * Treadmill() & mkey)
             data_names = ['inputs', 'responses'] if not include_behavior \
                 else ['inputs',
                       'behavior',
