@@ -407,7 +407,7 @@ class InputResponse(dj.Computed, FilterMixin, TraceMixin):
 
         # make sure that including areas does not decreas number of neurons
         assert len(pipe.ScanSet.UnitInfo() * experiment.Layer() * anatomy.AreaMembership() * anatomy.LayerMembership() & key) == \
-               len(pipe.ScanSet.UnitInfo() * experiment.Layer() & key), "AreaMembership decreases number of neurons"
+               len(pipe.ScanSet.UnitInfo() & key), "AreaMembership decreases number of neurons"
 
         data_rel = MovieClips() * ConditionTier() \
                    * self.Input() * self.ResponseBlock() * stimulus.Condition().proj('stimulus_type')
