@@ -782,6 +782,31 @@ class Treadmill(dj.Computed, FilterMixin, BehaviorMixin):
                 self.insert1(dict(scan_key, **trial_key, treadmill=tm),
                              ignore_extra_fields=True)
 
+import hashlib
+def key_hash(key):
+    """
+    32-byte hash used for lookup of primary keys of jobs
+    """
+    hashed = hashlib.md5()
+    for k, v in sorted(key.items()):
+        hashed.update(str(v).encode())
+    return hashed.hexdigest()
+
+def list_hash(values):
+    """
+    Returns MD5 digest hash values for a list of values
+    """
+    hashed = hashlib.md5()
+    for v in values:
+        hashed.update(str(v).encode())
+    return hashed.hexdigest()
+
+def hash_key_list(keys):
+    """
+    32-byte hash of a list of primary keys
+    """
+    hashes = [key_hash(k) for k in keys]
+    return list_hash(sorted(hashes))
 
 @schema
 class MovieMultiDataset(dj.Manual):
@@ -800,10 +825,65 @@ class MovieMultiDataset(dj.Manual):
         ---
         name                    : varchar(50) unique # string description to be used for training
         """
+    class MemberHash(dj.Part):
+        definition = """
+        -> master
+        ---
+        member_hash: char(32)   # hash of all members
+        """
 
     _template = 'group{group_id:03d}-{animal_id}-{session}-{scan_idx}-pre{preproc_id}-seg{segmentation_method}-spi{spike_method}-pip{pipe_version}'
 
+    def add_entry(self, description, members, force=False):
+        """
+        Args:
+          description - Short description of the group
+          members - any valid restriction on InputResponse to specify entries to be registered in the group
+          force - if set to True, would proceed with group creation without prompting for confirmation. Defaults to False.
+        """
+        from datajoint.utils import user_choice
+        with self.connection.transaction:
+            if not (InputResponse & members):
+                raise ValueError('Dataset not found')
+            member_keys = (InputResponse & members).fetch('KEY')
+            member_hash = hash_key_list(member_keys)
+            if self.MemberHash & dict(member_hash=member_hash):
+                print('Already found entry', entry)
+                return 
+
+            group_id = self.fetch('group_id').max() + 1
+
+            if not force:
+                print('About to make a new group with group_id={} with {} members:'.format(group_id, len(member_keys)))
+                for m in member_keys:
+                    print(m)
+                if user_choice('Proceed?') != 'yes':
+                    print('Aborting new group creation...')
+                    return
+
+            entry = dict(group_id=group_id, description=description)
+            self.insert1(entry)
+            self.MemberHash.insert1(dict(entry, member_hash=member_hash))
+            for k in member_keys:
+                k = dict(entry, **k)
+                name = self._template.format(**k)
+                self.Member().insert1(dict(k, name=name), ignore_extra_fields=True)
+
+
+    def fill_hash(self):
+        keys = self.fetch('KEY')
+        for key in keys:
+            print(key)
+            member_keys = (InputResponse & (self.Member & key)).fetch('KEY')
+            member_hash = hash_key_list(member_keys)
+            if not self.MemberHash & key:
+                if len(self.MemberHash & dict(member_hash=member_hash)) > 0:
+                    print('Duplicate hash {} when processing!!'.format(member_hash, key['group_id']))
+
+            self.MemberHash.insert1(dict(key, member_hash=member_hash), skip_duplicates=True)
+
     def fill(self):
+        raise DeprecationWarning('Use of this method for filling MovieMultiDataset is deprecated. Please use `add_entry` method instead')
         selection = [
             ('17358-5-3', [
                 dict(animal_id=17358, session=5, scan_idx=3, preproc_id=0, pipe_version=1, segmentation_method=3,
