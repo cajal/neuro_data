@@ -863,9 +863,9 @@ class MovieMultiDataset(dj.Manual):
 
             entry = dict(group_id=group_id, description=description)
             self.insert1(entry)
-            self.MemberHash.insert1(dict(entry, member_hash=member_hash))
+            self.MemberHash.insert1(dict(group_id=group_id, member_hash=member_hash))
             for k in member_keys:
-                k = dict(entry, **k)
+                k = dict(group_id=group_id, **k)
                 name = self._template.format(**k)
                 self.Member().insert1(dict(k, name=name), ignore_extra_fields=True)
 
