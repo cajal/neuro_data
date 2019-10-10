@@ -402,7 +402,7 @@ class InputResponse(dj.Computed, FilterMixin, TraceMixin):
 
         # get data relation
         # patch to deal with old eye tracking method
-        EyeTable = Eye2() if Eye2() & key else Eye()
+        EyeTable = Eye() if Eye() & key else Eye2()
         include_behavior = bool(EyeTable * Treadmill() & key)
 
         # make sure that including areas does not decreas number of neurons
@@ -962,7 +962,7 @@ class MovieMultiDataset(dj.Manual):
                                                 order_by='animal_id ASC, session ASC, scan_idx ASC, preproc_id ASC'):
             name = (self.Member() & mkey).fetch1('name')
             # patch to deal with transitioning from old manual tracking as stored in Eye2 to newer auto tracking in Eye
-            EyeTable = Eye2() if Eye2() & mkey else Eye()
+            EyeTable = Eye() if Eye() & mkey else Eye2()
             include_behavior = bool(EyeTable * Treadmill() & mkey)
             data_names = ['inputs', 'responses'] if not include_behavior \
                 else ['inputs',

@@ -4,6 +4,13 @@ services:
     build: .
     #image: eywalker/pytorch-jupyter:v0.4.0-updated
     env_file: .env
+    entrypoint:
+      - jupyter
+      - lab
+      - --ip=0.0.0.0
+      - --allow-root
+      - --NotebookApp.token=$JUPYTER_PASSWORD
+      - --no-browser
     ports:
       - "9990:8888"
     volumes:
