@@ -848,7 +848,11 @@ class MovieMultiDataset(dj.Manual):
             member_keys = (InputResponse & members).fetch('KEY')
             member_hash = hash_key_list(member_keys)
             if self.MemberHash & dict(member_hash=member_hash):
-                print('Already found entry', entry)
+                group_id = (self.MemberHash & dict(member_hash=member_hash)).fetch1('group_id')
+                print('Already found entry {} correspondig to the specified members:'.format(group_id))
+                for m in member_keys:
+                    print(m)
+                print('Aborting...')
                 return 
 
             group_id = self.fetch('group_id').max() + 1
