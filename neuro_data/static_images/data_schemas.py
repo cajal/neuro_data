@@ -19,60 +19,92 @@ dj.config['external-data'] = dict(
 # Day 2: 4-19 MEIs - incorrect depths, 4-29 Repeat ImageNet - incorrect depths
 # Day 3: 5-26 MEIs,  6-1 Repeat ImageNet
 # Day 4: 7-23 MEIs, 7-29 Repeat ImageNet
-STATIC = ['(animal_id=11521 and session=7 and scan_idx in (1,2))',
-          '(animal_id=16157 and session=5 and scan_idx in (5,6))',
-          '(animal_id=11677 and session=2 and scan_idx=1)',
-          '(animal_id=16312 and session=3 and scan_idx=20)',
-          '(animal_id=18765 and session=4 and scan_idx=6)',
-          '(animal_id=18765 and session=7 and scan_idx=17)',
-          ]
+STATIC = [
+    '(animal_id=11521 AND session=7 AND scan_idx=1)',
+    '(animal_id=11521 AND session=7 AND scan_idx=2)',
+    '(animal_id=16157 AND session=5 AND scan_idx=5)',
+    '(animal_id=16157 AND session=5 AND scan_idx=6)',
+    '(animal_id=16312 AND session=3 AND scan_idx=20)',
+    '(animal_id=18765 AND session=4 AND scan_idx=6)',
+    '(animal_id=18765 AND session=7 AND scan_idx=17)',
+    '(animal_id=21067 AND session=15 AND scan_idx=9)',  # 360 images x 20 repeatitions (for Zhe)
+]
 
 MEI_STATIC = [
-          '(animal_id=20505 and session=2 and scan_idx=24)', # loop 0 day 1 (Tue) source ImageNet
-          '(animal_id=20505 and session=3 and scan_idx=7)',  # loop 0 day 1 (Tue) repeat ImageNet repeat
-          '(animal_id=20505 and session=5 and scan_idx=26)', # loop 0 day 3 (Thu) MEI
-          '(animal_id=20505 and session=6 and scan_idx=1)',  # loop 0 day 3 (Thu) repeat ImageNet
-          '(animal_id=20505 and session=7 and scan_idx=23)', # loop 0 day 4 (Fri) MEI
-          '(animal_id=20505 and session=7 and scan_idx=29)', # loop 0 day 4 (Fri) repeat ImageNet
-          '(animal_id=20457 and session=5 and scan_idx=9)',  # loop 1 day 1 (Thu) source ImageNet
-          '(animal_id=20457 and session=5 and scan_idx=17)', # loop 1 day 1 (Thu) repeat ImageNet
-          '(animal_id=20457 and session=5 and scan_idx=27)', # loop 1 day 1 (Thu) Monet
-          '(animal_id=20457 and session=7 and scan_idx=4)',  # loop 1 day 2 (Fri) MEI,
-          '(animal_id=20457 and session=7 and scan_idx=10)', # loop 1 day 2 (Fri) repeat ImageNet,
-          '(animal_id=20457 and session=7 and scan_idx=16)', # loop 1 day 2 (Fri) Monet,
-          '(animal_id=20457 and session=8 and scan_idx=9)',  # loop 1 day 3 (Mon) MEI,
-          '(animal_id=20457 and session=8 and scan_idx=12)', # loop 1 day 3 (Mon) repeat ImageNet
-          '(animal_id=20457 and session=8 and scan_idx=22)', # loop 1 day 3 (Mon) Monet
-          '(animal_id=20505 and session=10 and scan_idx=14)',  # loop 2 day 1 (Tue) source ImageNet
-          '(animal_id=20505 and session=10 and scan_idx=19)',  # loop 2 day 1 (Tue) repeat ImageNet
-          '(animal_id=20505 and session=11 and scan_idx=7)',   # loop 2 day 2 (Wed) MEI - BAD: mouse not awake
-          '(animal_id=20505 and session=11 and scan_idx=16)',  # loop 2 day 2 (Wed) repeat ImageNet
-          '(animal_id=20505 and session=12 and scan_idx=16)',  # loop 2 day 3 (Thu) MEI
-          '(animal_id=20505 and session=12 and scan_idx=29)',  # loop 2 day 3 (Thu) repeat ImageNet
-          '(animal_id=20505 and session=14 and scan_idx=4)',   # loop 2 day 4 (Thu) MEI
-          '(animal_id=20505 and session=14 and scan_idx=33)',  # loop 2 day 4 (Thu) repeat ImageNet
-          '(animal_id=20210 and session=4 and scan_idx=11)',  # loop 3 day 1 (Tue) source ImageNet
-          #'(animal_id=20210 and session=4 and scan_idx=20)',  # loop 3 day 1 (Tue) ImageNet (alternative set of images)
-          #'(animal_id=20210 and session=5 and scan_idx=26)',  # loop 3 day 2 (Wed) MEI, eye secretion for half the scan
-          '(animal_id=20210 and session=5 and scan_idx=16)',  # loop 3 day 2 (Wed) repeat ImageNet
-          '(animal_id=20210 and session=7 and scan_idx=10)',  # loop 3 day 3 (Thu) MEI
-          '(animal_id=20210 and session=7 and scan_idx=14)',  # loop 3 day 3 (Thu) repeat ImageNet
-          #'(animal_id=20210 and session=8 and scan_idx=11)',  # loop 3 day 4 (Fri) Masked MEI vs Masked ImageNet
-          '(animal_id=20210 and session=8 and scan_idx=17)',  # loop 3 day 4 (Fri) repeat ImageNet
-          '(animal_id=20892 and session=3 and scan_idx=14)',  # loop 4 day 1 (Tue, Jan 29) source ImageNet
-          #'(animal_id=20892 and session=4 and scan_idx=11)',  # loop 4 day 2 (Wed) MEI, kind of big bubble
-          '(animal_id=20892 and session=4 and scan_idx=16)',  # loop 4 day 2 (Wed) repeat ImageNet, small bubble
-          '(animal_id=20892 and session=5 and scan_idx=18)',  # loop 4 day 3 (Thu) MEI
-          '(animal_id=20892 and session=5 and scan_idx=29)',  # loop 4 day 3 (Thu) repeat ImageNet
-          '(animal_id=20892 and session=6 and scan_idx=17)',  # loop 4 day 4 (Fri) MEI, small bubble
-          '(animal_id=20892 and session=6 and scan_idx=24)',  # loop 4 day 4 (Fri) repeat ImageNet
-          '(animal_id=20892 and session=9 and scan_idx=10)',  # loop 4 day x (Thu, Feb 7) ImageNet, big FOV, single depth
-          '(animal_id=20892 and session=9 and scan_idx=11)',  # loop 4 day x (Thu, Feb 7) ImageNet, big FOV, single depth
-          '(animal_id=20892 and session=10 and scan_idx=10)',  # loop 4 day x (Tue, Feb 12) ImageNet, higher visual areas
-          '(animal_id=20892 and session=10 and scan_idx=14)',  # loop 4 day x (Tue, Feb 12) ImageNet, higher visual areas
-    ]
+    '(animal_id=20505 AND session=2 AND scan_idx=24)', # loop 0 day 1 (Tue) source ImageNet
+    '(animal_id=20505 AND session=3 AND scan_idx=7)',  # loop 0 day 1 (Tue) repeat ImageNet repeat
+    '(animal_id=20505 AND session=5 AND scan_idx=26)', # loop 0 day 3 (Thu) MEI
+    '(animal_id=20505 AND session=6 AND scan_idx=1)',  # loop 0 day 3 (Thu) repeat ImageNet
+    '(animal_id=20505 AND session=7 AND scan_idx=23)', # loop 0 day 4 (Fri) MEI
+    '(animal_id=20505 AND session=7 AND scan_idx=29)', # loop 0 day 4 (Fri) repeat ImageNet
 
-STATIC = STATIC + MEI_STATIC
+    '(animal_id=20457 AND session=5 AND scan_idx=9)',  # loop 1 day 1 (Thu) source ImageNet
+    '(animal_id=20457 AND session=5 AND scan_idx=17)', # loop 1 day 1 (Thu) repeat ImageNet
+    '(animal_id=20457 AND session=5 AND scan_idx=27)', # loop 1 day 1 (Thu) Monet
+    #'(animal_id=20457 AND session=7 AND scan_idx=4)',  # loop 1 day 2 (Fri) MEI, sync failed
+    '(animal_id=20457 AND session=7 AND scan_idx=10)', # loop 1 day 2 (Fri) repeat ImageNet,
+    '(animal_id=20457 AND session=7 AND scan_idx=16)', # loop 1 day 2 (Fri) Monet,
+    '(animal_id=20457 AND session=8 AND scan_idx=9)',  # loop 1 day 3 (Mon) MEI,
+    '(animal_id=20457 AND session=8 AND scan_idx=12)', # loop 1 day 3 (Mon) repeat ImageNet
+    '(animal_id=20457 AND session=8 AND scan_idx=22)', # loop 1 day 3 (Mon) Monet
+
+    '(animal_id=20505 AND session=10 AND scan_idx=14)',  # loop 2 day 1 (Tue) source ImageNet
+    '(animal_id=20505 AND session=10 AND scan_idx=19)',  # loop 2 day 1 (Tue) repeat ImageNet
+    #'(animal_id=20505 AND session=11 AND scan_idx=7)',   # loop 2 day 2 (Wed) MEI - BAD: mouse not awake
+    '(animal_id=20505 AND session=11 AND scan_idx=16)',  # loop 2 day 2 (Wed) repeat ImageNet
+    '(animal_id=20505 AND session=12 AND scan_idx=16)',  # loop 2 day 3 (Thu) MEI
+    '(animal_id=20505 AND session=12 AND scan_idx=29)',  # loop 2 day 3 (Thu) repeat ImageNet
+    '(animal_id=20505 AND session=14 AND scan_idx=4)',   # loop 2 day 4 (Thu) MEI
+    '(animal_id=20505 AND session=14 AND scan_idx=33)',  # loop 2 day 4 (Thu) repeat ImageNet
+
+    '(animal_id=20210 AND session=4 AND scan_idx=11)',  # loop 3 day 1 (Tue) source ImageNet
+    #'(animal_id=20210 AND session=4 AND scan_idx=20)',  # loop 3 day 1 (Tue) ImageNet (alternative set of images)
+    #'(animal_id=20210 AND session=5 AND scan_idx=26)',  # loop 3 day 2 (Wed) MEI, eye secretion for half the scan
+    '(animal_id=20210 AND session=5 AND scan_idx=16)',  # loop 3 day 2 (Wed) repeat ImageNet
+    '(animal_id=20210 AND session=7 AND scan_idx=10)',  # loop 3 day 3 (Thu) MEI
+    '(animal_id=20210 AND session=7 AND scan_idx=14)',  # loop 3 day 3 (Thu) repeat ImageNet
+    #'(animal_id=20210 AND session=8 AND scan_idx=11)',  # loop 3 day 4 (Fri) Masked MEI vs Masked ImageNet, masking was wrong
+    '(animal_id=20210 AND session=8 AND scan_idx=17)',  # loop 3 day 4 (Fri) repeat ImageNet
+
+    '(animal_id=20892 AND session=3 AND scan_idx=14)',  # loop 4 day 1 (Tue, Jan 29) source ImageNet
+    #'(animal_id=20892 AND session=4 AND scan_idx=11)',  # loop 4 day 2 (Wed) MEI, kind of big bubble
+    '(animal_id=20892 AND session=4 AND scan_idx=16)',  # loop 4 day 2 (Wed) repeat ImageNet, small bubble
+    '(animal_id=20892 AND session=5 AND scan_idx=18)',  # loop 4 day 3 (Thu) MEI
+    #'(animal_id=20892 AND session=5 AND scan_idx=29)',  # loop 4 day 3 (Thu) repeat ImageNet, mouse was sleep half of the time
+    '(animal_id=20892 AND session=6 AND scan_idx=17)',  # loop 4 day 4 (Fri) MEI, small bubble
+    '(animal_id=20892 AND session=6 AND scan_idx=24)',  # loop 4 day 4 (Fri) repeat ImageNet
+
+    '(animal_id=21067 AND session=9 AND scan_idx=17)',  # loop 5 day 1 (Tue) source ImageNet
+    # '(animal_id=21067 AND session=9 AND scan_idx=23)',  # loop 5 day 1 (Tue) ImageNet (alternative set of images), Sync failed, do not use
+    '(animal_id=21067 AND session=10 AND scan_idx=14)', # loop 5 day 2 (Wed) MEI
+    '(animal_id=21067 AND session=10 AND scan_idx=18)', # loop 5 day 2 (Wed) repeat ImageNet
+    # '(animal_id=21067 AND session=11 AND scan_idx=12)', # loop 5 day 3 (Thu) MEI vs Gabor
+    '(animal_id=21067 AND session=11 AND scan_idx=21)', # loop 5 day 3 (Thu) repeat ImageNet
+    #'(animal_id=21067 AND session=12 AND scan_idx=11)', # loop 5 day 4 (Fri) Masked MEI vs Masked ImageNet
+    '(animal_id=21067 AND session=12 AND scan_idx=15)', # loop 5 day 4 (Fri) repeat ImageNet
+    # '(animal_id=21067 AND session=13 AND scan_idx=10)', # loop 5 day 5 (Mon) Masked MEI vs Unmasked Imagenet
+    '(animal_id=21067 AND session=13 AND scan_idx=14)', # loop 5 day 5 (Mon) repeat ImageNet
+
+    '(animal_id=22564 AND session=2 AND scan_idx=12)', # loop 6 day 1 (Mon) ImageNet collection 2 (same as the ones we use above)
+    '(animal_id=22564 AND session=2 AND scan_idx=13)', # loop 6 day 1 (Mon) ImageNet collection 3
+    '(animal_id=22564 AND session=3 AND scan_idx=8)', # loop 6 day 2 (Tue) Imagenet collection 4 (this one has the oracle images as part of the 5000 unique images, so they were presented 11 times)
+    '(animal_id=22564 AND session=3 AND scan_idx=12)', # loop 6 day 2 (Tue) Imagenet collection 6
+]
+
+
+HIGHER_AREAS = [
+    '(animal_id=20892 AND session=9 AND scan_idx=10)', # ImageNet, single depth, big FOV, mostly V1
+    '(animal_id=20892 AND session=9 AND scan_idx=11)', # ImageNet, single depth, big FOV, mostly V1
+    '(animal_id=20892 AND session=10 AND scan_idx=10)', # ImageNet, V1+LM+AL+RL in a single rectangular FOV
+    '(animal_id=21553 AND session=11 AND scan_idx=10)', # ImageNet, V1+LM+AL+RL in a single rectangular FOV
+    '(animal_id=21844 AND session=2 AND scan_idx=12)', # ImageNet, V1+LM+AL+RL in four distinct rois
+    #'(animal_id=22085 AND session=2 AND scan_idx=20)', # ImageNet, V1+LM+AL+RL in four distinct rois, no stack
+    '(animal_id=22083 AND session=7 AND scan_idx=21)', # ImageNet, V1+LM+AL+RL in four distinct rois
+    '(animal_id=22083 AND session=6 AND scan_idx=18)', # ImageNet, V1+PM+AM in a single rectangular FOV
+    '(animal_id=22279 AND session=4 AND scan_idx=23)', # ImageNet, V1+PM in two distinct rois
+]
+
+STATIC = STATIC + MEI_STATIC + HIGHER_AREAS
 
 # set of attributes that uniquely identifies the frame content
 UNIQUE_FRAME = {
@@ -91,7 +123,7 @@ vis = dj.create_virtual_module('vis', 'pipeline_vis')
 maps = dj.create_virtual_module('maps', 'pipeline_map')
 shared = dj.create_virtual_module('shared', 'pipeline_shared')
 anatomy = dj.create_virtual_module('anatomy', 'pipeline_anatomy')
-mesonet = dj.create_virtual_module('mesonet', 'cortex_ex_machina_mesonet_data')
+#mesonet = dj.create_virtual_module('mesonet', 'cortex_ex_machina_mesonet_data')
 treadmill = dj.create_virtual_module('treadmill', 'pipeline_treadmill')
 
 schema = dj.schema('neurodata_static')
@@ -181,6 +213,59 @@ class ExcludedTrial(dj.Manual):
     exclusion_comment='': varchar(64)   # reasons for exclusion
     """
 
+# based on mesonet.MesoNetSplit
+@schema
+class ImageNetSplit(dj.Lookup):
+    definition = """ # split imagenet frames into train, test, validation
+
+    -> stimulus.StaticImage.Image
+    ---
+    -> Tier
+    """
+    def fill(self, scan_key):
+        """ Assign each imagenet frame in the current scan to train/test/validation set.
+
+        Arguments:
+            scan_key: An scan (animal_id, session, scan_idx) that has stimulus.Trials
+                created. Usually one where the stimulus was presented.
+
+        Note:
+            Each image is assigned to one set and that holds true for all our scans and
+            collections. Once an image has been assigned (and models have been trained
+            with that split), it cannot be changed in the future (this is problematic if
+            images are reused as those from collection 2 or collection 3 with a different
+            purpose).
+
+            The exact split assigned will depend on the scans used in fill and the order
+            that this table was filled. Not ideal.
+        """
+        # Get all image ids in this scan
+        all_frames = stimulus.Frame & (stimulus.Trial & scan_key) & {'image_class': 'imagenet'}
+        unique_frames = dj.U('image_id').aggr(all_frames, repeats='COUNT(image_id)')
+        image_ids = unique_frames.fetch('image_id', order_by='repeats DESC')
+        num_frames = len(image_ids)
+        # * NOTE: this fetches all oracle images first and the rest in a "random" order;
+        # we use that random order to make the validation/training division below.
+
+        # Get number of repeated frames
+        n = int(np.median(unique_frames.fetch('repeats')))  # HACK
+        num_oracles = len(unique_frames & 'repeats > {}'.format(n))  # repeats
+        if num_oracles == 0:
+            self.msg('Could not find repeated frames. Using 20% of the original set')
+            num_oracles = int(0.2 * num_frames)
+
+        # Compute number of validation examples
+        num_validation = int(np.ceil((num_frames - num_oracles) * 0.1))  # 10% validation examples
+
+        # Insert
+        self.insert([{'image_id': iid, 'image_class': 'imagenet', 'tier': 'test'} for iid
+                     in image_ids[:num_oracles]], skip_duplicates=True)
+        self.insert([{'image_id': iid, 'image_class': 'imagenet', 'tier': 'validation'}
+                     for iid in image_ids[num_oracles: num_oracles + num_validation]])
+        self.insert([{'image_id': iid, 'image_class': 'imagenet', 'tier': 'train'} for iid
+                     in image_ids[num_oracles + num_validation:]])
+
+
 @schema
 class ConditionTier(dj.Computed):
     definition = """
@@ -252,13 +337,10 @@ class ConditionTier(dj.Computed):
             if cond['stimulus_type'] == 'stimulus.Frame':
 
                 # deal with ImageNet frames first
-                log.info('Inserting assignment from Mesonet')
-                assignment = dj.U('tier', 'image_id') & (stimulus.Frame * mesonet.MesonetSplit.proj(tier='type') & 'image_class = "imagenet"')
-
-                targets = StaticScan * stimulus.Frame * assignment & (stimulus.Trial & key) & 'image_class = "imagenet"'
+                log.info('Inserting assignment from ImageNetSplit')
+                targets = StaticScan * stimulus.Frame * ImageNetSplit & (stimulus.Trial & key) & 'image_class = "imagenet"'
                 print('Inserting {} imagenet conditions!'.format(len(targets)))
-                self.insert(targets,
-                            ignore_extra_fields=True)
+                self.insert(targets, ignore_extra_fields=True)
 
                 # deal with MEI images, assigning tier test for all images
                 assignment = (stimulus.Frame() & 'image_class in ("cnn_mei", "lin_rf", "multi_cnn_mei", "multi_lin_rf")').proj(tier='"train"')
@@ -698,7 +780,9 @@ class BehaviorMixin:
         return (stimulus.Sync() & key).fetch1('frame_times').squeeze()[::ndepth]
 
     def load_eye_traces(self, key):
-        r, center = (pupil.FittedContour.Ellipse() & key).fetch('major_r', 'center', order_by='frame_id ASC')
+        #r, center = (pupil.FittedPupil.Ellipse() & key).fetch('major_r', 'center', order_by='frame_id ASC')
+        r, center = (pupil.FittedPupil.Circle() & key).fetch('radius', 'center',
+                                                             order_by='frame_id')
         detectedFrames = ~np.isnan(r)
         xy = np.full((len(r), 2), np.nan)
         xy[detectedFrames, :] = np.vstack(center[detectedFrames])
@@ -734,8 +818,8 @@ class Eye(dj.Computed, FilterMixin, BehaviorMixin):
     # eye movement data
 
     -> InputResponse
-    -> pupil.FittedContour
     ---
+    -> pupil.FittedPupil                 # tracking_method as a secondary attribute
     pupil              : external-data   # pupil dilation trace
     dpupil             : external-data   # derivative of pupil dilation trace
     center             : external-data   # center position of the eye
@@ -744,9 +828,10 @@ class Eye(dj.Computed, FilterMixin, BehaviorMixin):
 
     @property
     def key_source(self):
-        return InputResponse & pupil.FittedContour & stimulus.BehaviorSync
+        return InputResponse & pupil.FittedPupil & stimulus.BehaviorSync
 
     def make(self, scan_key):
+        scan_key = {**scan_key, 'tracking_method': 2}
         log.info('Populating '+ pformat(scan_key))
         radius, xy, eye_time = self.load_eye_traces(scan_key)
         frame_times = self.load_frame_times(scan_key)
@@ -914,6 +999,27 @@ class StaticMultiDataset(dj.Manual):
             ('20210-8-17', dict(animal_id=20210, session=8, scan_idx=17, preproc_id=0)),
             ('20892-6-24', dict(animal_id=20892, session=6, scan_idx=24, preproc_id=0)),
             ('20505-10-14-gamma', dict(animal_id=20505, session=10, scan_idx=14, preproc_id=3)),
+            ('21067-9-17', dict(animal_id=21067, session=9, scan_idx=17, preproc_id=0)),
+            ('21067-15-9', dict(animal_id=21067, session=15, scan_idx=9, preproc_id=0)),
+            ('20892-10-10', dict(animal_id=20892, session=10, scan_idx=10, preproc_id=0)),
+            ('20457-5-17', dict(animal_id=20457, session=5, scan_idx=17, preproc_id=0)),
+            ('20505-10-19', dict(animal_id=20505, session=10, scan_idx=19, preproc_id=0)),
+            ('20892-4-16', dict(animal_id=20892, session=4, scan_idx=16, preproc_id=0)),
+            ('21067-10-18', dict(animal_id=21067, session=10, scan_idx=18, preproc_id=0)),
+            ('21067-11-21', dict(animal_id=21067, session=11, scan_idx=21, preproc_id=0)),
+            ('21067-12-15', dict(animal_id=21067, session=12, scan_idx=15, preproc_id=0)),
+            ('21067-13-14', dict(animal_id=21067, session=13, scan_idx=14, preproc_id=0)),
+            ('21553-11-10', dict(animal_id=21553, session=11, scan_idx=10, preproc_id=0)),
+            ('20892-9-11', dict(animal_id=20892, session=9, scan_idx=11, preproc_id=0)),
+            ('21844-2-12', dict(animal_id=21844, session=2, scan_idx=12, preproc_id=0)),
+            ('22085-2-20', dict(animal_id=22085, session=2, scan_idx=20, preproc_id=0)),
+            ('22083-7-21', dict(animal_id=22083, session=7, scan_idx=21, preproc_id=0)),
+            ('22083-6-18', dict(animal_id=22083, session=6, scan_idx=18, preproc_id=0)),
+            ('22279-4-23', dict(animal_id=22279, session=4, scan_idx=23, preproc_id=0)),
+            ('22564-2-12', dict(animal_id=22564, session=2, scan_idx=12, preproc_id=0)),
+            ('22564-2-13', dict(animal_id=22564, session=2, scan_idx=13, preproc_id=0)),
+            ('22564-3-8', dict(animal_id=22564, session=3, scan_idx=8, preproc_id=0)),
+            ('22564-3-12', dict(animal_id=22564, session=3, scan_idx=12, preproc_id=0)),
         ]
         for group_id, (descr, key) in enumerate(selection):
             entry = dict(group_id=group_id, description=descr)

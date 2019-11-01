@@ -57,6 +57,11 @@ class H5ArraySet(Dataset):
                 x = tr.inv(x)
         return x
 
+    def __dir__(self):
+        attrs = list(self.__dict__)
+        attrs.extend(list(self._fid))
+        return attrs
+
     def __getattr__(self, item):
         if item in self._fid:
             item = self._fid[item]
