@@ -13,7 +13,7 @@ from ..utils.data import h5cached, SplineCurve, FilterMixin, fill_nans, NaNSplin
 
 dj.config['external-data'] = dict(
     protocol='file',
-    location='/external7/')
+    location='/external/')
 
 # Day 1: 2-24 ImageNet - used to generate MEIs, 3-7 Repeat ImageNet
 # Day 2: 4-19 MEIs - incorrect depths, 4-29 Repeat ImageNet - incorrect depths
@@ -461,7 +461,7 @@ class Frame(dj.Computed):
         self.insert1(dict(key, frame=frame))
 
 
-@h5cached('/external7/cache/', mode='array', transfer_to_tmp=False,
+@h5cached('/external/cache/', mode='array', transfer_to_tmp=False,
           file_format='static{animal_id}-{session}-{scan_idx}-preproc{preproc_id}.h5')
 @schema
 class InputResponse(dj.Computed, FilterMixin):

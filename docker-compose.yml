@@ -11,7 +11,7 @@ services:
       - /tmp:/tmp
       - /tmp/.X11-unix:/tmp/.X11-unix
       - /home/fabee/code/neuro_data:/src/neuro_data
-      - /mnt/scratch07:/external7
+      - /mnt/scratch07:/external
       - /home/fabee/code/neuro_data/dj_local_conf.json:/root/.datajoint_config.json
     environment:
       - DISPLAY=$DISPLAY
@@ -26,7 +26,7 @@ services:
       - /tmp:/tmp
       - /tmp/.X11-unix:/tmp/.X11-unix
       - /home/fabee/code/neuro_data:/src/neuro_data
-      - /mnt/scratch07:/external7
+      - /mnt/scratch07:/external
       - /home/fabee/code/neuro_data/dj_local_conf.json:/root/.datajoint_config.json
     environment:
       - DISPLAY=:"$IP:0"

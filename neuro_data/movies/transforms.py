@@ -14,10 +14,6 @@ class DataTransform:
         return label
 
 
-# CAUTION! - There was a bug where the inputs are normalized by the mean of the
-# dataset rather than by the standard deviation. Given many networks were trained using this buggy implementation of
-# Noramalizer, this "buggy" behavior can be recovered by setting "buggy=True". Also note that, previous behavior was
-# equivalent to having `normalize_by_image = True`.
 class Normalizer(DataTransform, Invertible):
     """
     Normalizes a trial with fields: inputs, behavior, eye_position, and responses. The pair of
@@ -28,23 +24,14 @@ class Normalizer(DataTransform, Invertible):
     - eye_position is z-scored
     - reponses are divided by the per neuron std if the std is greater than
             1% of the mean std (to avoid division by 0)
-    
-    For backward compatibility, setting `buggy=True` and `normalize_per_image=True` reproduces the previous behavior
     """
 
-    def __init__(self, data, stats_source='all', buggy=False, normalize_per_image=False, exclude=None):
+    def __init__(self, data, stats_source='all', exclude=None):
         assert isinstance(data, H5SequenceSet), 'data must be a H5SequenceSet'
 
         exclude = self.exclude = exclude or []
-        self.buggy = buggy
-        self.normalize_per_image = normalize_per_image
 
-        self._inputs_mean = data.statistics['inputs/{}/mean'.format(stats_source)][()]
-        if self.buggy:
-            # Buggy implementation for backward compatibility
-            self._inputs_std = data.statistics['inputs/{}/mean'.format(stats_source)][()]
-        else:
-            self._inputs_std = data.statistics['inputs/{}/std'.format(stats_source)][()]
+        self._inputs_std = data.statistics['inputs/{}/mean'.format(stats_source)][()]
 
         s = np.array(data.statistics['responses/{}/std'.format(stats_source)])
 
@@ -55,12 +42,8 @@ class Normalizer(DataTransform, Invertible):
         transforms, itransforms = {}, {}
 
         # -- inputs
-        if self.normalize_per_image:
-            transforms['inputs'] = lambda x: (x - x.mean()) / self._inputs_std
-            itransforms['inputs'] = lambda x: x * self._inputs_std + x.mean()
-        else:
-            transforms['inputs'] = lambda x: (x - self._inputs_mean) / self._inputs_std
-            itransforms['inputs'] = lambda x: x * self._inputs_std + self._inputs_mean
+        transforms['inputs'] = lambda x: (x - x.mean()) / self._inputs_std
+        itransforms['inputs'] = lambda x: x * self._inputs_std + x.mean()
 
         # -- responses
         transforms['responses'] = lambda x: x * self._response_precision

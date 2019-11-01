@@ -3,7 +3,6 @@ from collections import OrderedDict
 from functools import partial
 from itertools import count
 from pprint import pformat
-import os
 
 import cv2
 import imageio
@@ -20,7 +19,7 @@ from ..utils.data import SplineMovie, FilterMixin, SplineCurve, NaNSpline, fill_
 
 dj.config['external-data'] = dict(
     protocol='file',
-    location='/external7/movie-data/')
+    location='/external/movie-data/')
 
 STACKS = [
     dict(animal_id=17977, stack_session=2, stack_idx=8, pipe_version=1, volume_id=1, registration_method=2),
@@ -304,7 +303,7 @@ class MovieClips(dj.Computed, FilterMixin):
         self.insert1(dict(key, frames=movie.transpose([2, 0, 1]), sample_times=samps, fps0=frame_rate))
 
 
-@h5cached(os.environ.get('NEURO_MOVIES_DIR', '/external7/cache/'), mode='groups', transfer_to_tmp=False,
+@h5cached('/external/cache/', mode='groups', transfer_to_tmp=False,
           file_format='movies{animal_id}-{session}-{scan_idx}-pre{preproc_id}-pipe{pipe_version}-seg{segmentation_method}-spike{spike_method}.h5')
 @schema
 class InputResponse(dj.Computed, FilterMixin, TraceMixin):
@@ -759,12 +758,6 @@ class MovieMultiDataset(dj.Manual):
              [dict(animal_id=17797, session=8, scan_idx=5, preproc_id=0, pipe_version=1, segmentation_method=3,
                      spike_method=5),
               dict(animal_id=16314, session=3, scan_idx=1, preproc_id=0, pipe_version=1, segmentation_method=3,
-                   spike_method=5)
-              ]),
-            ('17797-8-5-and-18142-6-3',
-             [dict(animal_id=17797, session=8, scan_idx=5, preproc_id=0, pipe_version=1, segmentation_method=3,
-                     spike_method=5),
-              dict(animal_id=18142, session=6, scan_idx=3, preproc_id=0, pipe_version=1, segmentation_method=3,
                    spike_method=5)
               ]),
         ]

@@ -4,7 +4,6 @@ from pprint import pformat
 
 import datajoint as dj
 import numpy as np
-import pandas as pd
 from attorch.dataloaders import RepeatsBatchSampler
 from torch.utils.data import DataLoader
 from torch.utils.data.sampler import SubsetRandomSampler
@@ -21,31 +20,12 @@ schema = dj.schema('neurodata_movie_configs', locals())
 
 
 class DataLoaderTFirst(DataLoader):
-
-    def __init__(self, dataset, sampler, batch_size, frames_per_tstep=None):
-        super().__init__(dataset=dataset, sampler=sampler, batch_size=batch_size)
-        self.frames_per_tstep = frames_per_tstep
-
     def __iter__(self):
         for x in super().__iter__():
-            inputs, beh, eye_pos, targets = list(map(
-                lambda xf: xf[0].permute(2, 0, 1, 3, 4) if xf[1] == 'inputs' else xf[0].permute(1, 0, 2),
-                zip(x, self.dataset.data_point._fields)))
-
-            if self.frames_per_tstep is None or self.frames_per_tstep == 1:
-                yield inputs, beh, eye_pos, targets
-
-            else:
-                num_tsteps = inputs.size(0) // self.frames_per_tstep
-                num_frames = num_tsteps * self.frames_per_tstep
-
-                inputs = inputs[:num_frames].view(num_tsteps, self.frames_per_tstep, *inputs.size()[1:]
-                                                  ).permute(0, 2, 1, 3, 4, 5).squeeze(dim=3)
-                beh = beh[:num_frames].view(num_tsteps, self.frames_per_tstep, *beh.size()[1:])[:, -1]
-                eye_pos = eye_pos[:num_frames].view(num_tsteps, self.frames_per_tstep, *eye_pos.size()[1:])[:, -1]
-                targets = targets[:num_frames].view(num_tsteps, self.frames_per_tstep, *targets.size()[1:])[:, -1]
-
-                yield inputs, beh, eye_pos, targets
+            yield list(
+                map(lambda xf: xf[0].permute(2, 0, 1, 3, 4)
+                    if xf[1] == 'inputs' else xf[0].permute(1, 0, 2),
+                    zip(x, self.dataset.data_point._fields)))
 
 
 class StimulusTypeMixin:
@@ -56,6 +36,9 @@ class StimulusTypeMixin:
             log.info('Excluding "' + '", "'.join(exclude) +
                      '" from normalization')
         for k, dataset in datasets.items():
+            for ex in exclude:
+                assert ex in dataset.data_groups, '{} not in data_groups'.format(
+                    ex)
             transforms = []
             if 'seq_len' in key and key['seq_len'] is not None:
                 transforms.append(Subsequence(key['seq_len']))
@@ -131,7 +114,7 @@ class StimulusTypeMixin:
 
     def get_loaders(self, datasets, tier, batch_size, stimulus_types, balanced=False,
                     merge_noise_types=True, shrink_to_same_size=False, Sampler=None,
-                    t_first=False, train_iterations=None, frames_per_tstep=None):
+                    t_first=False, train_iterations=None):
         if Sampler is None:
             Sampler = self.get_sampler_class(tier, balanced)
 
@@ -196,8 +179,8 @@ class StimulusTypeMixin:
                 sampler = Sampler(ix)
             if t_first:
                 log.info('Time in first dimension')
-                loaders[k] = DataLoaderTFirst(dataset, sampler=sampler, batch_size=batch_size,
-                                              frames_per_tstep=frames_per_tstep)
+                loaders[k] = DataLoaderTFirst(
+                    dataset, sampler=sampler, batch_size=batch_size)
             else:
                 log.info('Batch in first dimension')
                 loaders[k] = DataLoader(
@@ -208,7 +191,7 @@ class StimulusTypeMixin:
     def load_data(self, key, stimulus_types, tier=None, batch_size=1, key_order=None,
                   normalize=True, exclude_from_normalization=None,
                   balanced=False, shrink_to_same_size=False, cuda=False,
-                  Sampler=None, t_first=False, train_iterations=None, frames_per_tstep=None):
+                  Sampler=None, t_first=False, train_iterations=None):
         log.info('Loading {} datasets with tier {}'.format(
             pformat(stimulus_types, indent=20), tier))
         datasets = MovieMultiDataset().fetch_data(key, key_order=key_order)
@@ -225,14 +208,13 @@ class StimulusTypeMixin:
         loaders = self.get_loaders(
             datasets, tier, batch_size, stimulus_types=stimulus_types,
             balanced=balanced, shrink_to_same_size=shrink_to_same_size,
-            Sampler=Sampler, t_first=t_first, train_iterations=train_iterations,
-            frames_per_tstep=frames_per_tstep)
+            Sampler=Sampler, t_first=t_first, train_iterations=train_iterations)
         return datasets, loaders
 
 
 class AreaLayerMixin(StimulusTypeMixin):
     def load_data(self, key, tier=None, batch_size=1, key_order=None, cuda=False,
-                  Sampler=None, t_first=False, train_iterations=None, frames_per_tstep=None, **kwargs):
+                  Sampler=None, t_first=False, train_iterations=None, **kwargs):
         log.info('Ignoring {} when loading {}'.format(
             pformat(kwargs, indent=20), self.__class__.__name__))
         shrink = key.pop('shrink', False)
@@ -246,8 +228,7 @@ class AreaLayerMixin(StimulusTypeMixin):
                                               balanced=balanced,
                                               shrink_to_same_size=shrink,
                                               cuda=cuda, Sampler=Sampler, t_first=t_first,
-                                              train_iterations=train_iterations,
-                                              frames_per_tstep=frames_per_tstep)
+                                              train_iterations=train_iterations)
 
         def area_layer_idx(areas, layers):
             if 'brain_area' in key:
@@ -279,20 +260,16 @@ class AreaLayerMixin(StimulusTypeMixin):
 
 class AreaLayerReliableMixin(AreaLayerMixin):
     def load_data(self, key, tier=None, batch_size=1, seq_len=None, Sampler=None, t_first=False,
-                  cuda=False, train_iterations=None, frames_per_tstep=None, **kwargs):
+                  cuda=False, scale_input=False, train_iterations=None, **kwargs):
         log.info('Ignoring {} when loading {}'.format(
             pformat(kwargs, indent=20), self.__class__.__name__))
 
         from .stats import BootstrapOracleTTest
-        if seq_len is None:
-            key['seq_len'] = seq_len
-        else:
-            key['seq_len'] = seq_len if frames_per_tstep is None else seq_len * frames_per_tstep
+        key['seq_len'] = seq_len
         assert tier in [None, 'train', 'validation', 'test']
         datasets, loaders = super().load_data(
             key, tier=tier, batch_size=batch_size, Sampler=Sampler,
-            t_first=t_first, cuda=cuda, train_iterations=train_iterations,
-            frames_per_tstep=frames_per_tstep)
+            t_first=t_first, cuda=cuda, train_iterations=train_iterations)
         for rok, dataset in datasets.items():
             member_key = (MovieMultiDataset.Member() & key &
                           dict(name=rok)).fetch1(dj.key)
@@ -308,11 +285,15 @@ class AreaLayerReliableMixin(AreaLayerMixin):
                 units == dataset.neurons.unit_ids), 'order of neurons has changed'
             pval_thresh = np.power(10, float(key['p_val_power']))
             selection = pvals < pval_thresh
-            if selection.sum() < len(dataset.neurons.unit_ids):
-                log.info('Subsampling to {} neurons with BootstrapOracleTTest p-val < {:.0E}'.format(
-                    selection.sum(), pval_thresh))
-                dataset.transforms.insert(-1, Subsample(np.where(selection)[0]))
-                assert np.all(dataset.neurons.unit_ids == units[selection]), 'Units are inconsistent'
+            log.info('Subsampling to {} neurons with BootstrapOracleTTest p-val < {:.0E}'.format(
+                selection.sum(), pval_thresh))
+            dataset.transforms.insert(
+                -1, Subsample(np.where(selection)[0]))
+            if scale_input:
+                log.info('Scaling Input to [0, 1]')
+                dataset.transforms.insert(-1, ScaleInput())
+            assert np.all(dataset.neurons.unit_ids ==
+                          units[selection]), 'Units are inconsistent'
         return datasets, loaders
 
 
@@ -498,7 +479,7 @@ class DataConfig(ConfigBase, dj.Lookup):
         def content(self):
             for p in product(['all'],
                              ['stimulus.Clip', '~stimulus.Clip'],
-                             ['inputs,responses', ''],
+                             ['inputs,responses'],
                              [True],
                              ['L2/3'],
                              ['V1'],
@@ -517,6 +498,7 @@ class DataConfig(ConfigBase, dj.Lookup):
         -> common_configs.BrainAreas
         p_val_power             : tinyint       # 10^(p_val_power) is p-val threshold
         """
+        _exclude_from_normalization = ['inputs', 'responses']
 
         def describe(self, key):
             return "Like AreaLayer but only neurons that have significantly different (p-val < {:.0E}) response-oracle correlations to the same stimuli vs different stimuli".format(
@@ -526,63 +508,12 @@ class DataConfig(ConfigBase, dj.Lookup):
         def content(self):
             for p in product(['all'],
                              ['stimulus.Clip', '~stimulus.Clip'],
-                             ['inputs,responses', ''],
+                             ['inputs,responses'],
                              [True],
                              ['L2/3'],
-                             ['V1+LM+LI+AL+RL', 'V1+LM+AL+RL'],
+                             ['V1+LM+LI+AL+RL'],
                              [-3]):
                 yield dict(zip(self.heading.dependent_attributes, p))
-
-    class BalancedAreas(dj.Part):
-        definition = """
-        -> master
-        ---
-        -> DataConfig.proj(upstream_data_hash='data_hash')
-        """
-
-        def describe(self, key):
-            return 'Balanced number of neurons across brain areas'
-
-        @property
-        def content(self):
-            data_hashes = ['b3562bd04a2d0adccbb04928315ff969']
-            for dh in data_hashes:
-                yield dict(upstream_data_hash=dh)
-
-        def load_data(self, key, **kwargs):
-            from neuro_data.movies.stats import Oracle
-            upstream_key = dict(data_hash=key['upstream_data_hash'], group_id=key['group_id'])
-
-            assert len(Oracle.Pearson & upstream_key) > 0, \
-                'You forgot to populate Oracle for data_hash: {}, group_id: {}'.format(
-                upstream_key['data_hash'], upstream_key['group_id'])
-            datasets, loaders = DataConfig().load_data(upstream_key, **kwargs)
-
-            for rok, dataset in datasets.items():
-
-                member = MovieMultiDataset.Member & 'name="{}"'.format(rok)
-                oracle_key = DataConfig().proj() * member.proj() & upstream_key
-                oracle_units = pd.DataFrame((Oracle.UnitPearson & oracle_key).fetch())
-
-                assert np.all(dataset.neurons.unit_ids == oracle_units.unit_id.values), \
-                    'Mismatch between dataset unit ids and Oracle unit ids'
-
-                areas_units = []
-                for area in np.unique(dataset.neurons.area):
-                    area_units = pd.DataFrame(dict(unit_id=dataset.neurons.unit_ids[dataset.neurons.area == area]))
-                    areas_units.append(area_units.merge(oracle_units, on='unit_id'))
-
-                units_per_area = min([len(df) for df in areas_units])
-                all_units = []
-                for area_df in areas_units:
-                    all_units += area_df.sort_values('pearson', ascending=False).iloc[:units_per_area].unit_id.to_list()
-
-                units_bool = np.isin(dataset.neurons.unit_ids, np.array(all_units))
-                unit_idx = np.where(units_bool)[0]
-                log.info('Subsampling to {} neurons for balanced areas'.format(unit_idx.size))
-                dataset.transforms.insert(-1, Subsample(unit_idx))
-
-            return datasets, loaders
 
     class AreaLayerSubset(dj.Part, StimulusTypeMixin):
         definition = """
