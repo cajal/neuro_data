@@ -15,6 +15,8 @@ dj.config['external-data'] = dict(
     protocol='file',
     location='/external/')
 
+# Use StaticScanCandidate to add new scans, do not use this anymore... - Daniel
+'''
 # Day 1: 2-24 ImageNet - used to generate MEIs, 3-7 Repeat ImageNet
 # Day 2: 4-19 MEIs - incorrect depths, 4-29 Repeat ImageNet - incorrect depths
 # Day 3: 5-26 MEIs,  6-1 Repeat ImageNet
@@ -106,6 +108,8 @@ HIGHER_AREAS = [
 
 STATIC = STATIC + MEI_STATIC + HIGHER_AREAS
 
+'''
+
 # set of attributes that uniquely identifies the frame content
 UNIQUE_FRAME = {
     'stimulus.Frame': ('image_id', 'image_class'),
@@ -158,6 +162,14 @@ extra_info_types = {
     'spatial_freq':float
 }
 
+# Adding new class to get rid of the hard coding above
+@schema
+class StaticScanCandidate(dj.Manual):
+    definition = """
+    -> fuse.ScanDone
+    ---
+    candidate_notes='' : varchar(1024)
+    """
 
 @schema
 class StaticScan(dj.Computed):
@@ -176,7 +188,7 @@ class StaticScan(dj.Computed):
         -> fuse.ScanSet.Unit
         """
 
-    key_source = fuse.ScanDone() & STATIC & 'spike_method=5 and segmentation_method=6'
+    key_source = fuse.ScanDone() & StaticScanCandidate & 'spike_method=5 and segmentation_method=6'
 
     @staticmethod
     def complete_key(key):
