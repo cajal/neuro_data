@@ -177,19 +177,20 @@ class ScanOracle(dj.Computed):
     def make(self, key):
         fname = InputResponse().get_filename(key)
         dset = MovieSet(fname, 'inputs', 'responses')
-
+        test_index = np.where(dset.tiers == 'test')[0]
         condition_hashes = dset.condition_hashes
         hashes, counts = np.unique(condition_hashes, return_counts=True)
         repeat_hashes = hashes[counts > 2]
 
         oracles, data = [], []
         for cond_hash in repeat_hashes:
-            index = np.where(condition_hashes == cond_hash)[0].tolist()
+            repeat_index = np.where(condition_hashes == cond_hash)[0]
+            index = np.intersect1d(repeat_index, test_index).tolist()
             inputs = np.stack([dset.inputs[str(i)][()] for i in index], axis=0)
             outputs = np.stack([dset.responses[str(i)][()] for i in index], axis=0)
             assert (np.diff(inputs, axis=0) == 0).all(), 'Video inputs of oracle trials do not match'
             new_shape = (-1, outputs.shape[-1])
-            r, _, n = outputs.shape
+            r = outputs.shape[0]
             mu = outputs.mean(axis=0, keepdims=True)
             oracle = (mu * r - outputs) / (r - 1)
             oracles.append(oracle.reshape(new_shape))
