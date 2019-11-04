@@ -1,34 +1,22 @@
-version: '2'
+version: '3'
 services:
-
   notebook:
     build: .
+    #image: eywalker/pytorch-jupyter:v0.4.0-updated
     env_file: .env
-    ports:
-      - "7777:8888"
-    volumes:
-      - $HOME/Dropbox/notebooks/neuro_data:/notebooks
-      - /tmp:/tmp
-      - /tmp/.X11-unix:/tmp/.X11-unix
-      - /home/fabee/code/neuro_data:/src/neuro_data
-      - /mnt/scratch07:/external
-      - /home/fabee/code/neuro_data/dj_local_conf.json:/root/.datajoint_config.json
-    environment:
-      - DISPLAY=$DISPLAY
-
-  fish:
-    build: .
-    env_file: .env
-    ports:
-      - "8888:8888"
-    volumes:
-      - $HOME/Dropbox/notebooks/neuro_data:/notebooks
-      - /tmp:/tmp
-      - /tmp/.X11-unix:/tmp/.X11-unix
-      - /home/fabee/code/neuro_data:/src/neuro_data
-      - /mnt/scratch07:/external
-      - /home/fabee/code/neuro_data/dj_local_conf.json:/root/.datajoint_config.json
-    environment:
-      - DISPLAY=:"$IP:0"
     entrypoint:
-      - /usr/bin/fish
+      - jupyter
+      - lab
+      - --ip=0.0.0.0
+      - --allow-root
+      - --NotebookApp.token=$JUPYTER_PASSWORD
+      - --no-browser
+    ports:
+      - "9990:8888"
+    volumes:
+      - ./notebooks:/notebooks/local_notebooks
+      - /mnt/lab/users/eywalker/notebooks:/notebooks/lab_notes
+      - /tmp:/tmp
+      - /mnt/scratch07:/external
+      - /mnt/lab/microns/data:/data
+      - .:/src/neuro_data
