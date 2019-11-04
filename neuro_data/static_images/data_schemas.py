@@ -16,6 +16,7 @@ dj.config['external-data'] = dict(
     location='/external/')
 
 # Use StaticScanCandidate to add new scans, do not use this anymore... - Daniel
+# Instead Use StaticScanCandidate
 
 # Day 1: 2-24 ImageNet - used to generate MEIs, 3-7 Repeat ImageNet
 # Day 2: 4-19 MEIs - incorrect depths, 4-29 Repeat ImageNet - incorrect depths
