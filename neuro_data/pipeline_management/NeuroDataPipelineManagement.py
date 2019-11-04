@@ -27,6 +27,13 @@ class NeuroDataPipelineManagement():
     def process_static_scan(self, target_scan):
         print('Running preprocessing checks for ', target_scan)
 
+        # Check if the scan has been processed completely
+        if (self.pipeline_fuse.ScanDone() & target_scan).fetch().size == 0:
+            print('[Preprocessing Check]: ' + str(target_scan) + ' Scan has not been processed yet, please looked into pipeline for details')
+            return
+        else:
+            print('[Preprocessing Check]: ScanDone Check Passed')
+
         # Check if neurons area are labeled
         if (self.pipeline_anatomy.AreaMembership() & target_scan).fetch().size == 0:
             print('[Preprocessing Check]: ' + str(target_scan) + " AreaMembership is not populated")
@@ -70,13 +77,6 @@ class NeuroDataPipelineManagement():
                     return
         else:
             print('[Preprocessing Check]: LayerMembership Check Passed')
-
-        # Check if the scan has been processed completely
-        if (self.pipeline_fuse.ScanDone() & target_scan).fetch().size == 0:
-            print('[Preprocessing Check]: ' + str(target_scan) + ' Scan has not been processed yet, please looked into pipeline for details')
-            return
-        else:
-            print('[Preprocessing Check]: ScanDone Check Passed')
 
         # Check pipeline_stimulus.Sync() table
         if (self.pipeline_stimulus.Sync() & target_scan).fetch().size == 0:
