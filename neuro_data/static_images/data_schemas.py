@@ -988,10 +988,16 @@ class StaticMultiDataset(dj.Manual):
         """
 
     def fill(self):
+
         _template = 'group{group_id:03d}-{animal_id}-{session}-{scan_idx}-{preproc_id}'
 
         for scan in StaticMultiDatasetGroupAssignment.fetch(as_dict=True):
             # Check if the scan has been added to StaticMultiDataset.Member, if not then do it
+            if len(self & dict(group_id = scan['group_id'])) == 0:
+                # Group id has not been added into StaticMultiDataset, thus add it
+                self.insert1(dict(group_id = scan['group_id'], description = scan['description']))
+
+            # Handle instertion into Member table
             if len(StaticMultiDataset.Member() & scan) == 0:
                 self.Member().insert1(dict(scan, name = _template.format(**scan)), ignore_extra_fields=True)
 
