@@ -956,7 +956,18 @@ class Treadmill(dj.Computed, FilterMixin, BehaviorMixin):
             tm[~valid] = -1
 
         self.insert1(dict(scan_key, treadmill=tm, valid=valid))
+    
 
+# Patch job for the hardcoding mess that was StaticMultiDataset.fill()
+# Instead of editing the code each time, the user will enter they scan with the desire group_id into here then call StaticMultiDataset.fill()
+@schema
+class StaticMultiDatasetGroupAssignment(dj.Manual):
+    definition = """
+    group_id : int unsigned
+    -> InputResponse
+    ---
+    description = '' : varchar(1024)
+    """
 
 @schema
 class StaticMultiDataset(dj.Manual):
@@ -976,76 +987,13 @@ class StaticMultiDataset(dj.Manual):
         name                    : varchar(50) unique # string description to be used for training
         """
 
-    _template = 'group{group_id:03d}-{animal_id}-{session}-{scan_idx}-{preproc_id}'
-
-
     def fill(self):
-        selection = [
-            ('11521-7-1', dict(animal_id=11521, session=7, scan_idx=1, preproc_id=0)),
-            ('11521-7-2', dict(animal_id=11521, session=7, scan_idx=2, preproc_id=0)),
-            ('16157-5-5', dict(animal_id=16157, session=5, scan_idx=5, preproc_id=0)),
-            ('16157-5-6', dict(animal_id=16157, session=5, scan_idx=6, preproc_id=0)),
-            ('16157-5-5-scaled', dict(animal_id=16157, session=5, scan_idx=5, preproc_id=2)),
-            ('16312-3-20', dict(animal_id=16312, session=3, scan_idx=20, preproc_id=0)),
-            ('11521-7-1-scaled', dict(animal_id=11521, session=7, scan_idx=1, preproc_id=2)),
-            ('11521-7-2-scaled', dict(animal_id=11521, session=7, scan_idx=2, preproc_id=2)),
-            ('18765-4-6', dict(animal_id=18765, session=4, scan_idx=6, preproc_id=0)),
-            ('16157-5', [dict(animal_id=16157, session=5, scan_idx=5, preproc_id=0),
-                         dict(animal_id=16157, session=5, scan_idx=6, preproc_id=0)]),
-            ('20505-2-24', dict(animal_id=20505, session=2, scan_idx=24, preproc_id=0)),
-            ('20505-3-7', dict(animal_id=20505, session=3, scan_idx=7, preproc_id=0)),
-            ('20505-6-1', dict(animal_id=20505, session=6, scan_idx=1, preproc_id=0)),
-            ('20505-7-29', dict(animal_id=20505, session=7, scan_idx=29, preproc_id=0)),
-            ('20457-5-9', dict(animal_id=20457, session=5, scan_idx=9, preproc_id=0)),
-            ('20505-10-14', dict(animal_id=20505, session=10, scan_idx=14, preproc_id=0)),
-            ('20457-7-10', dict(animal_id=20457, session=7, scan_idx=10, preproc_id=0)),
-            ('20457-8-12', dict(animal_id=20457, session=8, scan_idx=12, preproc_id=0)),
-            ('20505-12-29', dict(animal_id=20505, session=12, scan_idx=29, preproc_id=0)),
-            ('20505-14-33', dict(animal_id=20505, session=14, scan_idx=33, preproc_id=0)),
-            ('20505-11-16', dict(animal_id=20505, session=11, scan_idx=16, preproc_id=0)),
-            ('20210-4-11', dict(animal_id=20210, session=4, scan_idx=11, preproc_id=0)),
-            ('20892-3-14', dict(animal_id=20892, session=3, scan_idx=14, preproc_id=0)),
-            ('20892-9-10', dict(animal_id=20892, session=9, scan_idx=10, preproc_id=0)),
-            ('20210-5-16', dict(animal_id=20210, session=5, scan_idx=16, preproc_id=0)),
-            ('20210-7-14', dict(animal_id=20210, session=7, scan_idx=14, preproc_id=0)),
-            ('20210-8-17', dict(animal_id=20210, session=8, scan_idx=17, preproc_id=0)),
-            ('20892-6-24', dict(animal_id=20892, session=6, scan_idx=24, preproc_id=0)),
-            ('20505-10-14-gamma', dict(animal_id=20505, session=10, scan_idx=14, preproc_id=3)),
-            ('21067-9-17', dict(animal_id=21067, session=9, scan_idx=17, preproc_id=0)),
-            ('21067-15-9', dict(animal_id=21067, session=15, scan_idx=9, preproc_id=0)),
-            ('20892-10-10', dict(animal_id=20892, session=10, scan_idx=10, preproc_id=0)),
-            ('20457-5-17', dict(animal_id=20457, session=5, scan_idx=17, preproc_id=0)),
-            ('20505-10-19', dict(animal_id=20505, session=10, scan_idx=19, preproc_id=0)),
-            ('20892-4-16', dict(animal_id=20892, session=4, scan_idx=16, preproc_id=0)),
-            ('21067-10-18', dict(animal_id=21067, session=10, scan_idx=18, preproc_id=0)),
-            ('21067-11-21', dict(animal_id=21067, session=11, scan_idx=21, preproc_id=0)),
-            ('21067-12-15', dict(animal_id=21067, session=12, scan_idx=15, preproc_id=0)),
-            ('21067-13-14', dict(animal_id=21067, session=13, scan_idx=14, preproc_id=0)),
-            ('21553-11-10', dict(animal_id=21553, session=11, scan_idx=10, preproc_id=0)),
-            ('20892-9-11', dict(animal_id=20892, session=9, scan_idx=11, preproc_id=0)),
-            ('21844-2-12', dict(animal_id=21844, session=2, scan_idx=12, preproc_id=0)),
-            ('22085-2-20', dict(animal_id=22085, session=2, scan_idx=20, preproc_id=0)),
-            ('22083-7-21', dict(animal_id=22083, session=7, scan_idx=21, preproc_id=0)),
-            ('22083-6-18', dict(animal_id=22083, session=6, scan_idx=18, preproc_id=0)),
-            ('22279-4-23', dict(animal_id=22279, session=4, scan_idx=23, preproc_id=0)),
-            ('22564-2-12', dict(animal_id=22564, session=2, scan_idx=12, preproc_id=0)),
-            ('22564-2-13', dict(animal_id=22564, session=2, scan_idx=13, preproc_id=0)),
-            ('22564-3-8', dict(animal_id=22564, session=3, scan_idx=8, preproc_id=0)),
-            ('22564-3-12', dict(animal_id=22564, session=3, scan_idx=12, preproc_id=0)),
-        ]
-        for group_id, (descr, key) in enumerate(selection):
-            entry = dict(group_id=group_id, description=descr)
-            if entry in self:
-                print('Already found entry', entry)
-            else:
-                with self.connection.transaction:
-                    if not (InputResponse() & key):
-                        ValueError('Dataset not found')
-                    self.insert1(entry)
-                    for k in (InputResponse() & key).fetch(dj.key):
-                        k = dict(entry, **k)
-                        name = self._template.format(**k)
-                        self.Member().insert1(dict(k, name=name), ignore_extra_fields=True)
+        _template = 'group{group_id:03d}-{animal_id}-{session}-{scan_idx}-{preproc_id}'
+
+        for scan in StaticMultiDatasetGroupAssignment.fetch(as_dict=True):
+            # Check if the scan has been added to StaticMultiDataset.Member, if not then do it
+            if len(StaticMultiDataset.Member() & scan) == 0:
+                self.Member().insert1(dict(scan, name = _template.format(**scan)), ignore_extra_fields=True)
 
     def fetch_data(self, key, key_order=None):
         assert len(self & key) == 1, 'Key must refer to exactly one multi dataset'
