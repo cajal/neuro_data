@@ -186,6 +186,8 @@ class ScanOracle(dj.Computed):
         for cond_hash in repeat_hashes:
             repeat_index = np.where(condition_hashes == cond_hash)[0]
             index = np.intersect1d(repeat_index, test_index).tolist()
+            if len(index) < 3:
+                continue
             inputs = np.stack([dset.inputs[str(i)][()] for i in index], axis=0)
             outputs = np.stack([dset.responses[str(i)][()] for i in index], axis=0)
             assert (np.diff(inputs, axis=0) == 0).all(), 'Video inputs of oracle trials do not match'
