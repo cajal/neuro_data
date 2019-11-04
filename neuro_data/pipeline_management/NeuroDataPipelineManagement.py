@@ -29,7 +29,7 @@ class NeuroDataPipelineManagement():
 
         # Check if neurons area are labeled
         if (self.pipeline_anatomy.AreaMembership() & target_scan).fetch().size == 0:
-            print('[Preprocessing Check]: ' + target_scan, " AreaMembership is not populated")
+            print('[Preprocessing Check]: ' + str(target_scan) + " AreaMembership is not populated")
             user_input = None
             while user_input not in ['y', 'n']:
                 user_input = input('Should we manually insert if the area are known and all the same? [y/n]')
