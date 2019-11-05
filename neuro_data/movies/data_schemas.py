@@ -497,25 +497,37 @@ class InputResponse(dj.Computed, FilterMixin, TraceMixin):
             return ret
 
         # --- compute statistics
-        log.info('Computing statistics on training dataset')
+        # compute on training set if exists - otherwise fall back on to computing on test set
+        if np.any(train_idx):
+            log.info('Computing statistics on training dataset')
+            target_idx = train_idx
+            source = 'train'
+        elif np.any(test_idx):
+            log.info('Computing statistics on test dataset')
+            target_idx = test_idx
+            source = 'test'
+        else:
+            raise ValueError('Emptry train and test!')
+        
         response_selector = lambda ix: np.concatenate([r for take, r in zip(ix, responses) if take], axis=0)
-        response_statistics = run_stats(response_selector, types, train_idx, axis=0)
+        response_statistics = run_stats(response_selector, types, target_idx, axis=0)
 
         input_selector = lambda ix: np.hstack([r.ravel() for take, r in zip(ix, inputs) if take])
-        input_statistics = run_stats(input_selector, types, train_idx)
+        input_statistics = run_stats(input_selector, types, target_idx)
 
         statistics = dict(
             inputs=input_statistics,
-            responses=response_statistics
+            responses=response_statistics,
+            source=source
         )
 
         if include_behavior:
             # ---- include statistics
             behavior_selector = lambda ix: np.concatenate([r for take, r in zip(ix, behavior) if take], axis=0)
-            behavior_statistics = run_stats(behavior_selector, types, train_idx, axis=0)
+            behavior_statistics = run_stats(behavior_selector, types, target_idx, axis=0)
 
             eye_selector = lambda ix: np.concatenate([r for take, r in zip(ix, eye_position) if take], axis=0)
-            eye_statistics = run_stats(eye_selector, types, train_idx, axis=0)
+            eye_statistics = run_stats(eye_selector, types, target_idx, axis=0)
 
             statistics['behavior'] = behavior_statistics
             statistics['eye_position'] = eye_statistics
