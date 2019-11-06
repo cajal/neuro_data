@@ -25,6 +25,19 @@ class NeuroDataPipelineManagement():
 
     # populate functions
     def process_static_scan(self, target_scan):
+        """
+        Function that goes and check for every table that needs to be populate as well as provide an option
+        to manaully populate AreaMembership and LayerMembership, assuming that all the neurons can be label the same Area and Layer
+        if not, they the user should manually do it.
+
+        Please refer to neuro_data/notebooks/pipeline_management notebook for an example
+
+        Parameters:
+        target_scan : dict(animal_id, session, scan_idx)
+
+        Returns:
+        None
+        """
         print('Running preprocessing checks for ', target_scan)
 
         # Check if the scan has been processed completely
