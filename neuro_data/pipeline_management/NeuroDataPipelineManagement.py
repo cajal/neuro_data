@@ -43,7 +43,7 @@ class NeuroDataPipelineManagement():
                 
                 if user_input == 'y':
                     area = input('Input area to label neurons with:')
-                    while area not in ['V1']:
+                    while area not in ['V1', 'LM', 'AL', 'RL', 'all-unknown']:
                         if area == 'exit':
                             return
                         print('Invalid Area!')
