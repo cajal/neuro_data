@@ -68,7 +68,7 @@ class NeuroDataPipelineManagement():
             print('[Preprocessing Check]: ScanDone Check Passed')
 
         # Check if neurons area are labeled
-        if (self.pipeline_anatomy.AreaMembership() & target_scan).fetch().size == 0:
+        if len(self.pipeline_anatomy.AreaMembership() & target_scan) == 0:
             print('[Preprocessing Check]: ' + str(target_scan) + " AreaMembership is not populated")
             user_input = None
             while user_input not in ['y', 'n']:
@@ -89,7 +89,7 @@ class NeuroDataPipelineManagement():
             print('[Preprocessing Check]: AreaMembership Check Passed')
 
         # Check if neuron layers are labeled
-        if (self.pipeline_anatomy.LayerMembership() & target_scan).fetch().size == 0:
+        if len(self.pipeline_anatomy.LayerMembership() & target_scan) == 0:
             print('[Preprocessing Check]: ' + str(target_scan) + " LayerMembership is not populated")
 
             user_input = None
@@ -112,7 +112,7 @@ class NeuroDataPipelineManagement():
             print('[Preprocessing Check]: LayerMembership Check Passed')
 
         # Check pipeline_stimulus.Sync() table
-        if (self.pipeline_stimulus.Sync() & target_scan).fetch().size == 0:
+        if len(self.pipeline_stimulus.Sync() & target_scan) == 0:
             print('[Preprocessing Check]: ' + str(target_scan) + ' pipeline_stimulus.Sync() table is not processed or failed to processed')
             return
         else:
@@ -125,7 +125,7 @@ class NeuroDataPipelineManagement():
         target_scan_done_key = (self.pipeline_fuse.ScanDone() & target_scan).fetch1('KEY')
 
         # Insert into StaticScanCandidate
-        if (StaticScanCandidate & target_scan_done_key).fetch().size == 0:
+        if len(StaticScanCandidate & target_scan_done_key) == 0:
             StaticScanCandidate.insert1(target_scan_done_key)
             print('[NeuroData.Static Populate]: Successfully inserted Scan into StaticScanCandidate')
         else:
