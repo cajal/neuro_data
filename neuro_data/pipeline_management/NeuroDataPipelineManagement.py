@@ -12,12 +12,32 @@ class NeuroDataPipelineManagement():
         self.pipeline_stimulus = dj.create_virtual_module('pipeline_stimulus', 'pipeline_stimulus')
 
     def manually_insert_area_for_scan(self, target_scan, area):
+        """
+        Give a target_scan, it will label all neurons in there with the given area
+
+        Parameters:
+        target_scan : dict(animal_id, session, scan_idx)
+        area : str
+
+        Returns:
+        None
+        """
         neuron_unit_keys = (self.pipeline_fuse.ScanSet().Unit() & target_scan).fetch('KEY')
         for neuron_unit_key in neuron_unit_keys:
             neuron_unit_key['brain_area'] = area
             self.pipeline_anatomy.AreaMembership().insert1(neuron_unit_key, allow_direct_insert=True)
 
     def manually_insert_layer_for_scan(self, target_scan, layer):
+        """
+        Give a target_scan, it will label all neurons in there with the given layer
+
+        Parameters:
+        target_scan : dict(animal_id, session, scan_idx)
+        layer : str
+
+        Returns:
+        None
+        """
         neuron_unit_keys = (self.pipeline_fuse.ScanSet().Unit() & target_scan).fetch('KEY')
         for neuron_unit_key in neuron_unit_keys:
             neuron_unit_key['layer'] = layer
