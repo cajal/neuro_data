@@ -29,7 +29,7 @@ class NeuroDataPipelineManagement():
 
         # Check if the scan has been processed completely
         if (self.pipeline_fuse.ScanDone() & target_scan).fetch().size == 0:
-            print('[Preprocessing Check]: ' + str(target_scan) + ' Scan has not been processed yet, please looked into pipeline for details')
+            print('[Preprocessing Check]: ' + str(target_scan) + ' Scan has not been processed yet, please look into pipeline for details')
             return
         else:
             print('[Preprocessing Check]: ScanDone Check Passed')
