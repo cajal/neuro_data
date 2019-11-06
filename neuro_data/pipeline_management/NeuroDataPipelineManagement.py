@@ -39,7 +39,7 @@ class NeuroDataPipelineManagement():
             print('[Preprocessing Check]: ' + str(target_scan) + " AreaMembership is not populated")
             user_input = None
             while user_input not in ['y', 'n']:
-                user_input = input('Should we manually insert if the area are known and all the same? [y/n]')
+                user_input = input('Should we manually insert if the area are known and all the same? [y/n/exit]')
                 
                 if user_input == 'y':
                     area = input('Input area to label neurons with:')
@@ -61,7 +61,7 @@ class NeuroDataPipelineManagement():
 
             user_input = None
             while user_input not in ['y', 'n']:
-                user_input = input('Should we manually insert if the layer are known and all the same? [y/n]')
+                user_input = input('Should we manually insert if the layer are known and all the same? [y/n/exit]')
                 
                 if user_input == 'y':
                     layer = input('Input layer to label neurons with:')
