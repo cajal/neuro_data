@@ -412,6 +412,10 @@ class InputResponse(dj.Computed, FilterMixin, TraceMixin):
         data_rel = MovieClips() * ConditionTier() \
                    * self.Input() * self.ResponseBlock() * stimulus.Condition().proj('stimulus_type')
 
+        # for stimulus.Clips, obtain movie names as well
+        movie_name = data_rel.aggr(stimulus.Clip, dj.U('dummy') * stimulus.Clip.proj('movie_name', dummy='10'),
+                                   movie_name='IFNULL(movie_name, "NONE"', keep_all_rows=True)
+
         if include_behavior:  # restrict trials to those that do not have NaNs in Treadmill or Eye
             data_rel = data_rel & EyeTable & Treadmill
 
@@ -419,9 +423,9 @@ class InputResponse(dj.Computed, FilterMixin, TraceMixin):
                                           & key & '(um_z >= z_start) and (um_z < z_end)')
 
         # --- fetch all stimuli and classify into train/test/val
-        inputs, hashes, stim_keys, tiers, types, trial_idx, durations = \
-            (data_rel & key).fetch('frames', 'condition_hash', dj.key,
-                                   'tier', 'stimulus_type', 'trial_idx', 'duration',
+        inputs, hashes, stim_keys, tiers, types, trial_idx, durations, movie_names = \
+            (data_rel * movie_name & key).fetch('frames', 'condition_hash', dj.key,
+                                   'tier', 'stimulus_type', 'trial_idx', 'duration', 'movie_name',
                                    order_by='condition_hash ASC, trial_idx ASC')
         train_idx = np.array([t == 'train' for t in tiers], dtype=bool)
         test_idx = np.array([t == 'test' for t in tiers], dtype=bool)
@@ -474,6 +478,7 @@ class InputResponse(dj.Computed, FilterMixin, TraceMixin):
 
         hashes = hashes.astype(str)
         types = types.astype(str)
+        movie_names = movie_names.astype(str)
 
         def run_stats(selector, types, ix, axis=None):
             ret = {}
@@ -543,7 +548,8 @@ class InputResponse(dj.Computed, FilterMixin, TraceMixin):
                       trial_idx=trial_idx.astype(np.uint32),
                       neurons=neurons,
                       tiers=tiers.astype('S'),
-                      statistics=statistics
+                      statistics=statistics,
+                      movie_names=movie_names.astype('S')
                       )
         if include_behavior:
             retval['behavior'] = behavior
