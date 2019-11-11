@@ -249,7 +249,7 @@ class ImageNetSplit(dj.Lookup):
             that this table was filled. Not ideal.
         """
         # Get all image ids in this scan
-        all_frames = stimulus.Frame & (stimulus.Trial & scan_key) & {'image_class': 'imagenet'}
+        all_frames = stimulus.Frame * stimulus.Trial & scan_key & {'image_class': 'imagenet'}
         unique_frames = dj.U('image_id').aggr(all_frames, repeats='COUNT(image_id)')
         image_ids = unique_frames.fetch('image_id', order_by='repeats DESC')
         num_frames = len(image_ids)
@@ -260,7 +260,7 @@ class ImageNetSplit(dj.Lookup):
         n = int(np.median(unique_frames.fetch('repeats')))  # HACK
         num_oracles = len(unique_frames & 'repeats > {}'.format(n))  # repeats
         if num_oracles == 0:
-            self.msg('Could not find repeated frames. Using 20% of the original set')
+            print('Could not find repeated frames. Using 20% of the original set')
             num_oracles = int(0.2 * num_frames)
 
         # Compute number of validation examples
