@@ -28,6 +28,13 @@ STATIC = [
     '(animal_id=18765 AND session=4 AND scan_idx=6)',
     '(animal_id=18765 AND session=7 AND scan_idx=17)',
     '(animal_id=21067 AND session=15 AND scan_idx=9)',  # 360 images x 20 repeatitions (for Zhe)
+
+    # jiakun scans
+    '(animal_id=22564 AND session=5 AND scan_idx=12)', # imagenet V1
+    '(animal_id=22285 AND session=4 AND scan_idx=17)', # imagenet V1
+    '(animal_id=22281 AND session=2 AND scan_idx=15)', # imagenet V1
+    '(animal_id=22223 AND session=2 AND scan_idx=15)', # imagenet V1
+    '(animal_id=20622 AND session=2 AND scan_idx=14)', # imagenet V1, layer 4
 ]
 
 MEI_STATIC = [
@@ -89,6 +96,9 @@ MEI_STATIC = [
     '(animal_id=22564 AND session=2 AND scan_idx=13)', # loop 6 day 1 (Mon) ImageNet collection 3
     '(animal_id=22564 AND session=3 AND scan_idx=8)', # loop 6 day 2 (Tue) Imagenet collection 4 (this one has the oracle images as part of the 5000 unique images, so they were presented 11 times)
     '(animal_id=22564 AND session=3 AND scan_idx=12)', # loop 6 day 2 (Tue) Imagenet collection 6
+
+    '(animal_id=22620 AND session=4 AND scan_idx=15)', # loop 7 day 1 (Mon) source Imagenet
+    #'(animal_id=22620 AND session=4 AND scan_idx=17)', # loop 7 day 2 (Tue)
 ]
 
 
@@ -123,7 +133,6 @@ vis = dj.create_virtual_module('vis', 'pipeline_vis')
 maps = dj.create_virtual_module('maps', 'pipeline_map')
 shared = dj.create_virtual_module('shared', 'pipeline_shared')
 anatomy = dj.create_virtual_module('anatomy', 'pipeline_anatomy')
-#mesonet = dj.create_virtual_module('mesonet', 'cortex_ex_machina_mesonet_data')
 treadmill = dj.create_virtual_module('treadmill', 'pipeline_treadmill')
 
 schema = dj.schema('neurodata_static')
@@ -1020,6 +1029,12 @@ class StaticMultiDataset(dj.Manual):
             ('22564-2-13', dict(animal_id=22564, session=2, scan_idx=13, preproc_id=0)),
             ('22564-3-8', dict(animal_id=22564, session=3, scan_idx=8, preproc_id=0)),
             ('22564-3-12', dict(animal_id=22564, session=3, scan_idx=12, preproc_id=0)),
+            ('22564-5-12', dict(animal_id=22564, session=5, scan_idx=12, preproc_id=0)),
+            ('22285-4-17', dict(animal_id=22285, session=4, scan_idx=17, preproc_id=0)),
+            ('22281-2-15', dict(animal_id=22281, session=2, scan_idx=15, preproc_id=0)),
+            ('22223-2-15', dict(animal_id=22223, session=2, scan_idx=15, preproc_id=0)),
+            ('20622-2-14', dict(animal_id=20622, session=2, scan_idx=14, preproc_id=0)),
+            ('22620-4-15', dict(animal_id=22620, session=4, scan_idx=15, preproc_id=0)),
         ]
         for group_id, (descr, key) in enumerate(selection):
             entry = dict(group_id=group_id, description=descr)
