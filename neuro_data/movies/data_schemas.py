@@ -412,9 +412,9 @@ class InputResponse(dj.Computed, FilterMixin, TraceMixin):
         data_rel = MovieClips() * ConditionTier() \
                    * self.Input() * self.ResponseBlock() * stimulus.Condition().proj('stimulus_type')
 
-        # for stimulus.Clips, obtain movie names as well
-        movie_name = data_rel.aggr(stimulus.Clip, dj.U('dummy') * stimulus.Clip.proj('movie_name', dummy='10'),
-                                   movie_name='IFNULL(movie_name, "NONE"', keep_all_rows=True)
+        # for stimulus.Clips, obtain  movie names as well
+        movie_name = data_rel.aggr(dj.U('dummy') * stimulus.Clip.proj('movie_name', dummy='10'), movie_name='IFNULL(movie_name, "NONE")', keep_all_rows=True)
+
 
         if include_behavior:  # restrict trials to those that do not have NaNs in Treadmill or Eye
             data_rel = data_rel & EyeTable & Treadmill
