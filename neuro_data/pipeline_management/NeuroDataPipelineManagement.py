@@ -2,14 +2,16 @@ import numpy as np
 import datajoint as dj
 
 
-from neuro_data.static_images.data_schemas import StaticScanCandidate, StaticScan, ConditionTier, Frame, InputResponse, Eye, Treadmill, StaticMultiDataset, StaticMultiDatasetGroupAssignment
+from neuro_data.static_images.data_schemas import StaticScanCandidate, StaticScan, ConditionTier, Frame, InputResponse, Eye, Treadmill, StaticMultiDataset, StaticMultiDatasetGroupAssignment, ExcludedTrial
+
+pipeline_anatomy = dj.create_virtual_module('pipeline_anatomy', 'pipeline_anatomy')
+pipeline_fuse = dj.create_virtual_module('pipeline_fuse', 'pipeline_fuse')
+pipeline_stimulus = dj.create_virtual_module('pipeline_stimulus', 'pipeline_stimulus')
 
 
 class NeuroDataPipelineManagement():
     def __init__(self):
-        self.pipeline_anatomy = dj.create_virtual_module('pipeline_anatomy', 'pipeline_anatomy')
-        self.pipeline_fuse = dj.create_virtual_module('pipeline_fuse', 'pipeline_fuse')
-        self.pipeline_stimulus = dj.create_virtual_module('pipeline_stimulus', 'pipeline_stimulus')
+        pass
 
     def manually_insert_area_for_scan(self, target_scan, area):
         """
@@ -22,10 +24,10 @@ class NeuroDataPipelineManagement():
         Returns:
         None
         """
-        neuron_unit_keys = (self.pipeline_fuse.ScanSet().Unit() & target_scan).fetch('KEY')
+        neuron_unit_keys = (pipeline_fuse.ScanSet().Unit() & target_scan).fetch('KEY')
         for neuron_unit_key in neuron_unit_keys:
             neuron_unit_key['brain_area'] = area
-            self.pipeline_anatomy.AreaMembership().insert1(neuron_unit_key, allow_direct_insert=True)
+            pipeline_anatomy.AreaMembership().insert1(neuron_unit_key, allow_direct_insert=True)
 
     def manually_insert_layer_for_scan(self, target_scan, layer):
         """
@@ -38,10 +40,10 @@ class NeuroDataPipelineManagement():
         Returns:
         None
         """
-        neuron_unit_keys = (self.pipeline_fuse.ScanSet().Unit() & target_scan).fetch('KEY')
+        neuron_unit_keys = (pipeline_fuse.ScanSet().Unit() & target_scan).fetch('KEY')
         for neuron_unit_key in neuron_unit_keys:
             neuron_unit_key['layer'] = layer
-            self.pipeline_anatomy.LayerMembership().insert1(neuron_unit_key, allow_direct_insert=True)
+            pipeline_anatomy.LayerMembership().insert1(neuron_unit_key, allow_direct_insert=True)
 
     # populate functions
     def process_static_scan(self, target_scan):
@@ -61,14 +63,14 @@ class NeuroDataPipelineManagement():
         print('Running preprocessing checks for ', target_scan)
 
         # Check if the scan has been processed completely
-        if (self.pipeline_fuse.ScanDone() & target_scan).fetch().size == 0:
+        if (pipeline_fuse.ScanDone() & target_scan).fetch().size == 0:
             print('[Preprocessing Check]: ' + str(target_scan) + ' Scan has not been processed yet, please look into pipeline for details')
             return
         else:
             print('[Preprocessing Check]: ScanDone Check Passed')
 
         # Check if neurons area are labeled
-        if len(self.pipeline_anatomy.AreaMembership() & target_scan) == 0:
+        if len(pipeline_anatomy.AreaMembership() & target_scan) == 0:
             print('[Preprocessing Check]: ' + str(target_scan) + " AreaMembership is not populated")
             user_input = None
             while user_input not in ['y', 'n']:
@@ -89,7 +91,7 @@ class NeuroDataPipelineManagement():
             print('[Preprocessing Check]: AreaMembership Check Passed')
 
         # Check if neuron layers are labeled
-        if len(self.pipeline_anatomy.LayerMembership() & target_scan) == 0:
+        if len(pipeline_anatomy.LayerMembership() & target_scan) == 0:
             print('[Preprocessing Check]: ' + str(target_scan) + " LayerMembership is not populated")
 
             user_input = None
@@ -112,7 +114,7 @@ class NeuroDataPipelineManagement():
             print('[Preprocessing Check]: LayerMembership Check Passed')
 
         # Check pipeline_stimulus.Sync() table
-        if len(self.pipeline_stimulus.Sync() & target_scan) == 0:
+        if len(pipeline_stimulus.Sync() & target_scan) == 0:
             print('[Preprocessing Check]: ' + str(target_scan) + ' pipeline_stimulus.Sync() table is not processed or failed to processed')
             return
         else:
@@ -122,7 +124,7 @@ class NeuroDataPipelineManagement():
         print('[Preprocessing Check]: All table requirements passed, beginning neuro_data populating:')
         
         # Get the ScanDone primary key reference
-        target_scan_done_key = (self.pipeline_fuse.ScanDone() & target_scan).fetch1('KEY')
+        target_scan_done_key = (pipeline_fuse.ScanDone() & target_scan).fetch1('KEY')
 
         # Insert into StaticScanCandidate
         if len(StaticScanCandidate & target_scan_done_key) == 0:
@@ -138,6 +140,13 @@ class NeuroDataPipelineManagement():
         # Populate ConditionTier
         print("[NeuroData.Static Populate]: Populating ConditionTier:")
         ConditionTier.populate(target_scan_done_key)
+
+        # Check for incorrect flip times
+        print("[NeuroData.Static Populate]: Checking for Incorrect Flip Times:")
+        trials = (pipeline_stimulus.Trial() & target_scan).proj('flip_times').fetch(as_dict=True)
+        for trial in trials:
+            if trial['flip_times'].shape[1] != 3: # correct number of flips, hardcoded
+                ExcludedTrial.insert1(trial, ignore_extra_fields=True)
 
         # Populate Frame
         print("[NeuroData.Static Populate]: Populating Frame:")
@@ -163,7 +172,7 @@ class NeuroDataPipelineManagement():
             target_input_response_key['description'] = 'Inserted from PipelineManagement'
             StaticMultiDatasetGroupAssignment.insert1(target_input_response_key)
         else:
-            print("[NeuroData.Static Populate]:Scan is already in StaticMultiDatasetGroupAssignment, skipping")
+            print("[NeuroData.Static Populate]: Scan is already in StaticMultiDatasetGroupAssignment, skipping")
 
         # Fill StaticMultiDataset
         print("[NeuroData.Static Populate]: Filling StaticMultiDataset:")
