@@ -406,7 +406,7 @@ class InputResponse(dj.Computed, FilterMixin, TraceMixin):
         include_behavior = bool(EyeTable * Treadmill() & key)
 
         # make sure that including areas does not decreas number of neurons
-        assert len(pipe.ScanSet.UnitInfo() * experiment.Layer() * anatomy.AreaMembership() * anatomy.LayerMembership() & key) == \
+        assert len(pipe.ScanSet.UnitInfo() * anatomy.Layer() * anatomy.AreaMembership() * anatomy.LayerMembership() & key) == \
                len(pipe.ScanSet.UnitInfo() & key), "AreaMembership decreases number of neurons"
 
         data_rel = MovieClips() * ConditionTier() \
@@ -419,7 +419,7 @@ class InputResponse(dj.Computed, FilterMixin, TraceMixin):
         if include_behavior:  # restrict trials to those that do not have NaNs in Treadmill or Eye
             data_rel = data_rel & EyeTable & Treadmill
 
-        response = self.ResponseKeys() * (pipe.ScanSet.UnitInfo() * experiment.Layer() * anatomy.AreaMembership()
+        response = self.ResponseKeys() * (pipe.ScanSet.UnitInfo() * anatomy.Layer() * anatomy.AreaMembership()
                                           & key & '(um_z >= z_start) and (um_z < z_end)')
 
         # --- fetch all stimuli and classify into train/test/val
