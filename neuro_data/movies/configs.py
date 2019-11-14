@@ -211,6 +211,24 @@ class StimulusTypeMixin:
             Sampler=Sampler, t_first=t_first, train_iterations=train_iterations)
         return datasets, loaders
 
+class AllMixin(StimulusTypeMixin):
+    def load_data(self, key, tier=None, batch_size=1, key_order=None, cuda=False,
+                  Sampler=None, t_first=False, train_iterations=None, **kwargs):
+        log.info('Ignoring {} when loading {}'.format(
+            pformat(kwargs, indent=20), self.__class__.__name__))
+        shrink = key.pop('shrink', False)
+        balanced = key.pop('balanced', False)
+
+        return super().load_data(key, key.pop('stimulus_type').split(','),
+                                              tier, batch_size, key_order,
+                                              exclude_from_normalization=key.pop(
+                                                  'exclude').split(','),
+                                              normalize=key.pop('normalize'),
+                                              balanced=balanced,
+                                              shrink_to_same_size=shrink,
+                                              cuda=cuda, Sampler=Sampler, t_first=t_first,
+                                              train_iterations=train_iterations)
+
 
 class AreaLayerMixin(StimulusTypeMixin):
     def load_data(self, key, tier=None, batch_size=1, key_order=None, cuda=False,
@@ -327,7 +345,7 @@ class DataConfig(ConfigBase, dj.Lookup):
                             tr, (Subsample, ToTensor))]
         return datasets, loaders
 
-    class All(dj.Part, StimulusTypeMixin):
+    class All(dj.Part, AllMixin):
         definition = """
         -> master
         ---
