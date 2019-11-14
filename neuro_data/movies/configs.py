@@ -327,6 +327,31 @@ class DataConfig(ConfigBase, dj.Lookup):
                             tr, (Subsample, ToTensor))]
         return datasets, loaders
 
+    class All(dj.Part, StimulusTypeMixin):
+        definition = """
+        -> master
+        ---
+        stats_source            : varchar(50)  # normalization source
+        stimulus_type           : varchar(512) # type of stimulus
+        exclude                 : varchar(512) # what inputs to exclude from normalization
+        normalize               : bool         # whether to use a normalize or not
+        train_seq_len           : smallint     # training sequence length in frames
+        """
+        _exclude_from_normalization = ['inputs', 'responses']
+
+        def describe(self, key):
+            return "All cells on {stimulus_type}. normalize={normalize} on {stats_source} (except '{exclude}')".format(
+                **key)
+
+        @property
+        def content(self):
+            for p in product(['all'],
+                             ['stimulus.Clip|~stimulus.Clip'],
+                             ['inputs,responses'],
+                             [True],
+                             [30 * 5]):
+                yield dict(zip(self.heading.dependent_attributes, p))
+
     class AreaLayer(dj.Part, AreaLayerMixin):
         definition = """
         -> master
