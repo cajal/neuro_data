@@ -260,8 +260,7 @@ class ImageNetSplit(dj.Lookup):
         n = int(np.median(unique_frames.fetch('repeats')))  # HACK
         num_oracles = len(unique_frames & 'repeats > {}'.format(n))  # repeats
         if num_oracles == 0:
-            print('Could not find repeated frames. Using 20% of the original set')
-            num_oracles = int(0.2 * num_frames)
+            raise ValueError('Could not find repeated frames to use for oracle.')
 
         # Compute number of validation examples
         num_validation = int(np.ceil((num_frames - num_oracles) * 0.1))  # 10% validation examples
