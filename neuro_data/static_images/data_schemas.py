@@ -892,18 +892,18 @@ class StaticMultiDataset(dj.Manual):
         name                    : varchar(50) unique # string description to be used for training
         """
 
-    @classmethod
+    @staticmethod
     def fill(cls):
         _template = 'group{group_id:03d}-{animal_id}-{session}-{scan_idx}-{preproc_id}'
         for scan in StaticMultiDatasetGroupAssignment.fetch(as_dict=True):
             # Check if the scan has been added to StaticMultiDataset.Member, if not then do it
-            if len(cls & dict(group_id = scan['group_id'])) == 0:
+            if len(StaticMultiDataset & dict(group_id = scan['group_id'])) == 0:
                 # Group id has not been added into StaticMultiDataset, thus add it
-                cls.insert1(dict(group_id = scan['group_id'], description = scan['description']))
+                StaticMultiDataset.insert1(dict(group_id = scan['group_id'], description = scan['description']))
 
             # Handle instertion into Member table
             if len(StaticMultiDataset.Member() & scan) == 0:
-                cls.Member().insert1(dict(scan, name = _template.format(**scan)), ignore_extra_fields=True)
+                StaticMultiDataset.Member().insert1(dict(scan, name = _template.format(**scan)), ignore_extra_fields=True)
 
     def fetch_data(self, key, key_order=None):
         assert len(self & key) == 1, 'Key must refer to exactly one multi dataset'
