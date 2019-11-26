@@ -1,26 +1,17 @@
 from collections import OrderedDict
 from functools import partial
-from itertools import count, compress
+from itertools import compress
 from pprint import pformat
 
 import datajoint as dj
 import numpy as np
 import pandas as pd
 
-from .datasets import StaticImageSet
-from .. import logger as log
-from ..utils.data import h5cached, SplineCurve, FilterMixin, fill_nans, NaNSpline
+from neuro_data import logger as log
+from neuro_data.utils.data import h5cached, SplineCurve, FilterMixin, fill_nans, NaNSpline
+from neuro_data.static_images.datasets import StaticImageSet
 
-dj.config['external-data'] = dict(
-    protocol='file',
-    location='/external/')
-
-# set of attributes that uniquely identifies the frame content
-UNIQUE_FRAME = {
-    'stimulus.Frame': ('image_id', 'image_class'),
-    'stimulus.MonetFrame': ('rng_seed', 'orientation'),
-    'stimulus.TrippyFrame': ('rng_seed',),
-}
+dj.config['external-data'] = {'protocol': 'file', 'location': '/external/'}
 
 experiment = dj.create_virtual_module('experiment', 'pipeline_experiment')
 meso = dj.create_virtual_module('meso', 'pipeline_meso')
@@ -32,45 +23,21 @@ vis = dj.create_virtual_module('vis', 'pipeline_vis')
 maps = dj.create_virtual_module('maps', 'pipeline_map')
 shared = dj.create_virtual_module('shared', 'pipeline_shared')
 anatomy = dj.create_virtual_module('anatomy', 'pipeline_anatomy')
-#mesonet = dj.create_virtual_module('mesonet', 'cortex_ex_machina_mesonet_data')
 treadmill = dj.create_virtual_module('treadmill', 'pipeline_treadmill')
 
 schema = dj.schema('neurodata_static')
 
-extra_info_types = {
-    'condition_hash':'S',
-    'trial_idx':int,
-    'trial_idx':int,
-    'animal_id':int,
-    'session':int,
-    'scan_idx':int,
-    'image_class':'S',
-    'image_id':int,
-    'pre_blank_period':float,
-    'presentation_time':float,
-    'last_flip':int,
-    'trial_ts':'S',
-    'contrast_x':float,
-    'rng_seed_x':float,
-    'pattern_width':float,
-    'pattern_aspect':float,
-    'ori_coherence':float,
-    'ori_mix':float,
-    'orientation':float,
-    'contrast_y':float,
-    'rng_seed_y':float,
-    'tex_ydim':float,
-    'tex_xdim':float,
-    'xnodes':float,
-    'ynodes':float,
-    'up_factor':float,
-    'spatial_freq':float
+# set of attributes that uniquely identifies the frame content
+UNIQUE_FRAME = {
+    'stimulus.Frame': ('image_id', 'image_class'),
+    'stimulus.MonetFrame': ('rng_seed', 'orientation'),
+    'stimulus.TrippyFrame': ('rng_seed',),
 }
 
-# Adding new class to get rid of the hard coding above
 @schema
 class StaticScanCandidate(dj.Manual):
-    definition = """
+    definition = """ # list of scans to process
+    
     -> fuse.ScanDone
     ---
     candidate_notes='' : varchar(1024)
@@ -78,8 +45,7 @@ class StaticScanCandidate(dj.Manual):
 
 @schema
 class StaticScan(dj.Computed):
-    definition = """
-    # gatekeeper for scan and preprocessing settings
+    definition = """ # gatekeeper for scan and preprocessing settings
     
     -> fuse.ScanDone
     """
@@ -97,8 +63,8 @@ class StaticScan(dj.Computed):
 
     @staticmethod
     def complete_key(key):
-        return dict((dj.U('segmentation_method', 'pipe_version') \
-                     & (meso.ScanSet.Unit() & key)).fetch1(dj.key), **key)
+        return dict((dj.U('segmentation_method', 'pipe_version') &
+                     (meso.ScanSet.Unit() & key)).fetch1(dj.key), **key)
 
     def make(self, key):
         self.insert(fuse.ScanDone() & key, ignore_extra_fields=True)
@@ -157,7 +123,7 @@ class ImageNetSplit(dj.Lookup):
             that this table was filled. Not ideal.
         """
         # Get all image ids in this scan
-        all_frames = stimulus.Frame & (stimulus.Trial & scan_key) & {'image_class': 'imagenet'}
+        all_frames = stimulus.Frame * stimulus.Trial & scan_key & {'image_class': 'imagenet'}
         unique_frames = dj.U('image_id').aggr(all_frames, repeats='COUNT(image_id)')
         image_ids = unique_frames.fetch('image_id', order_by='repeats DESC')
         num_frames = len(image_ids)
@@ -168,8 +134,7 @@ class ImageNetSplit(dj.Lookup):
         n = int(np.median(unique_frames.fetch('repeats')))  # HACK
         num_oracles = len(unique_frames & 'repeats > {}'.format(n))  # repeats
         if num_oracles == 0:
-            self.msg('Could not find repeated frames. Using 20% of the original set')
-            num_oracles = int(0.2 * num_frames)
+            raise ValueError('Could not find repeated frames to use for oracle.')
 
         # Compute number of validation examples
         num_validation = int(np.ceil((num_frames - num_oracles) * 0.1))  # 10% validation examples
@@ -331,7 +296,6 @@ def process_frame(preproc_key, frame):
         #     raise ValueError('Frame shape {} cannot be processed'.format(frame.shape))
 
     return cv2.resize(frame, imgsize, interpolation=cv2.INTER_AREA).astype(np.float32)
-
 
 
 @schema
@@ -893,7 +857,7 @@ class StaticMultiDataset(dj.Manual):
         """
 
     @staticmethod
-    def fill(cls):
+    def fill():
         _template = 'group{group_id:03d}-{animal_id}-{session}-{scan_idx}-{preproc_id}'
         for scan in StaticMultiDatasetGroupAssignment.fetch(as_dict=True):
             # Check if the scan has been added to StaticMultiDataset.Member, if not then do it
