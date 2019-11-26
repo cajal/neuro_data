@@ -1,127 +1,17 @@
 from collections import OrderedDict
 from functools import partial
-from itertools import count, compress
+from itertools import compress
 from pprint import pformat
 
 import datajoint as dj
 import numpy as np
 import pandas as pd
 
-from .datasets import StaticImageSet
-from .. import logger as log
-from ..utils.data import h5cached, SplineCurve, FilterMixin, fill_nans, NaNSpline
+from neuro_data import logger as log
+from neuro_data.utils.data import h5cached, SplineCurve, FilterMixin, fill_nans, NaNSpline
+from neuro_data.static_images.datasets import StaticImageSet
 
-dj.config['external-data'] = dict(
-    protocol='file',
-    location='/external/')
-
-# Day 1: 2-24 ImageNet - used to generate MEIs, 3-7 Repeat ImageNet
-# Day 2: 4-19 MEIs - incorrect depths, 4-29 Repeat ImageNet - incorrect depths
-# Day 3: 5-26 MEIs,  6-1 Repeat ImageNet
-# Day 4: 7-23 MEIs, 7-29 Repeat ImageNet
-STATIC = [
-    '(animal_id=11521 AND session=7 AND scan_idx=1)',
-    '(animal_id=11521 AND session=7 AND scan_idx=2)',
-    '(animal_id=16157 AND session=5 AND scan_idx=5)',
-    '(animal_id=16157 AND session=5 AND scan_idx=6)',
-    '(animal_id=16312 AND session=3 AND scan_idx=20)',
-    '(animal_id=18765 AND session=4 AND scan_idx=6)',
-    '(animal_id=18765 AND session=7 AND scan_idx=17)',
-    '(animal_id=21067 AND session=15 AND scan_idx=9)',  # 360 images x 20 repeatitions (for Zhe)
-
-    # jiakun scans
-    '(animal_id=22564 AND session=5 AND scan_idx=12)', # imagenet V1
-    '(animal_id=22285 AND session=4 AND scan_idx=17)', # imagenet V1
-    '(animal_id=22281 AND session=2 AND scan_idx=15)', # imagenet V1
-    '(animal_id=22223 AND session=2 AND scan_idx=15)', # imagenet V1
-    '(animal_id=20622 AND session=2 AND scan_idx=14)', # imagenet V1, layer 4
-]
-
-MEI_STATIC = [
-    '(animal_id=20505 AND session=2 AND scan_idx=24)', # loop 0 day 1 (Tue) source ImageNet
-    '(animal_id=20505 AND session=3 AND scan_idx=7)',  # loop 0 day 1 (Tue) repeat ImageNet repeat
-    '(animal_id=20505 AND session=5 AND scan_idx=26)', # loop 0 day 3 (Thu) MEI
-    '(animal_id=20505 AND session=6 AND scan_idx=1)',  # loop 0 day 3 (Thu) repeat ImageNet
-    '(animal_id=20505 AND session=7 AND scan_idx=23)', # loop 0 day 4 (Fri) MEI
-    '(animal_id=20505 AND session=7 AND scan_idx=29)', # loop 0 day 4 (Fri) repeat ImageNet
-
-    '(animal_id=20457 AND session=5 AND scan_idx=9)',  # loop 1 day 1 (Thu) source ImageNet
-    '(animal_id=20457 AND session=5 AND scan_idx=17)', # loop 1 day 1 (Thu) repeat ImageNet
-    '(animal_id=20457 AND session=5 AND scan_idx=27)', # loop 1 day 1 (Thu) Monet
-    #'(animal_id=20457 AND session=7 AND scan_idx=4)',  # loop 1 day 2 (Fri) MEI, sync failed
-    '(animal_id=20457 AND session=7 AND scan_idx=10)', # loop 1 day 2 (Fri) repeat ImageNet,
-    '(animal_id=20457 AND session=7 AND scan_idx=16)', # loop 1 day 2 (Fri) Monet,
-    '(animal_id=20457 AND session=8 AND scan_idx=9)',  # loop 1 day 3 (Mon) MEI,
-    '(animal_id=20457 AND session=8 AND scan_idx=12)', # loop 1 day 3 (Mon) repeat ImageNet
-    '(animal_id=20457 AND session=8 AND scan_idx=22)', # loop 1 day 3 (Mon) Monet
-
-    '(animal_id=20505 AND session=10 AND scan_idx=14)',  # loop 2 day 1 (Tue) source ImageNet
-    '(animal_id=20505 AND session=10 AND scan_idx=19)',  # loop 2 day 1 (Tue) repeat ImageNet
-    #'(animal_id=20505 AND session=11 AND scan_idx=7)',   # loop 2 day 2 (Wed) MEI - BAD: mouse not awake
-    '(animal_id=20505 AND session=11 AND scan_idx=16)',  # loop 2 day 2 (Wed) repeat ImageNet
-    '(animal_id=20505 AND session=12 AND scan_idx=16)',  # loop 2 day 3 (Thu) MEI
-    '(animal_id=20505 AND session=12 AND scan_idx=29)',  # loop 2 day 3 (Thu) repeat ImageNet
-    '(animal_id=20505 AND session=14 AND scan_idx=4)',   # loop 2 day 4 (Thu) MEI
-    '(animal_id=20505 AND session=14 AND scan_idx=33)',  # loop 2 day 4 (Thu) repeat ImageNet
-
-    '(animal_id=20210 AND session=4 AND scan_idx=11)',  # loop 3 day 1 (Tue) source ImageNet
-    #'(animal_id=20210 AND session=4 AND scan_idx=20)',  # loop 3 day 1 (Tue) ImageNet (alternative set of images)
-    #'(animal_id=20210 AND session=5 AND scan_idx=26)',  # loop 3 day 2 (Wed) MEI, eye secretion for half the scan
-    '(animal_id=20210 AND session=5 AND scan_idx=16)',  # loop 3 day 2 (Wed) repeat ImageNet
-    '(animal_id=20210 AND session=7 AND scan_idx=10)',  # loop 3 day 3 (Thu) MEI
-    '(animal_id=20210 AND session=7 AND scan_idx=14)',  # loop 3 day 3 (Thu) repeat ImageNet
-    #'(animal_id=20210 AND session=8 AND scan_idx=11)',  # loop 3 day 4 (Fri) Masked MEI vs Masked ImageNet, masking was wrong
-    '(animal_id=20210 AND session=8 AND scan_idx=17)',  # loop 3 day 4 (Fri) repeat ImageNet
-
-    '(animal_id=20892 AND session=3 AND scan_idx=14)',  # loop 4 day 1 (Tue, Jan 29) source ImageNet
-    #'(animal_id=20892 AND session=4 AND scan_idx=11)',  # loop 4 day 2 (Wed) MEI, kind of big bubble
-    '(animal_id=20892 AND session=4 AND scan_idx=16)',  # loop 4 day 2 (Wed) repeat ImageNet, small bubble
-    '(animal_id=20892 AND session=5 AND scan_idx=18)',  # loop 4 day 3 (Thu) MEI
-    #'(animal_id=20892 AND session=5 AND scan_idx=29)',  # loop 4 day 3 (Thu) repeat ImageNet, mouse was sleep half of the time
-    '(animal_id=20892 AND session=6 AND scan_idx=17)',  # loop 4 day 4 (Fri) MEI, small bubble
-    '(animal_id=20892 AND session=6 AND scan_idx=24)',  # loop 4 day 4 (Fri) repeat ImageNet
-
-    '(animal_id=21067 AND session=9 AND scan_idx=17)',  # loop 5 day 1 (Tue) source ImageNet
-    # '(animal_id=21067 AND session=9 AND scan_idx=23)',  # loop 5 day 1 (Tue) ImageNet (alternative set of images), Sync failed, do not use
-    '(animal_id=21067 AND session=10 AND scan_idx=14)', # loop 5 day 2 (Wed) MEI
-    '(animal_id=21067 AND session=10 AND scan_idx=18)', # loop 5 day 2 (Wed) repeat ImageNet
-    # '(animal_id=21067 AND session=11 AND scan_idx=12)', # loop 5 day 3 (Thu) MEI vs Gabor
-    '(animal_id=21067 AND session=11 AND scan_idx=21)', # loop 5 day 3 (Thu) repeat ImageNet
-    #'(animal_id=21067 AND session=12 AND scan_idx=11)', # loop 5 day 4 (Fri) Masked MEI vs Masked ImageNet
-    '(animal_id=21067 AND session=12 AND scan_idx=15)', # loop 5 day 4 (Fri) repeat ImageNet
-    # '(animal_id=21067 AND session=13 AND scan_idx=10)', # loop 5 day 5 (Mon) Masked MEI vs Unmasked Imagenet
-    '(animal_id=21067 AND session=13 AND scan_idx=14)', # loop 5 day 5 (Mon) repeat ImageNet
-
-    '(animal_id=22564 AND session=2 AND scan_idx=12)', # loop 6 day 1 (Mon) ImageNet collection 2 (same as the ones we use above)
-    '(animal_id=22564 AND session=2 AND scan_idx=13)', # loop 6 day 1 (Mon) ImageNet collection 3
-    '(animal_id=22564 AND session=3 AND scan_idx=8)', # loop 6 day 2 (Tue) Imagenet collection 4 (this one has the oracle images as part of the 5000 unique images, so they were presented 11 times)
-    '(animal_id=22564 AND session=3 AND scan_idx=12)', # loop 6 day 2 (Tue) Imagenet collection 6
-
-    '(animal_id=22620 AND session=4 AND scan_idx=15)', # loop 7 day 1 (Mon) source Imagenet
-    #'(animal_id=22620 AND session=4 AND scan_idx=17)', # loop 7 day 2 (Tue)
-]
-
-
-HIGHER_AREAS = [
-    '(animal_id=20892 AND session=9 AND scan_idx=10)', # ImageNet, single depth, big FOV, mostly V1
-    '(animal_id=20892 AND session=9 AND scan_idx=11)', # ImageNet, single depth, big FOV, mostly V1
-    '(animal_id=20892 AND session=10 AND scan_idx=10)', # ImageNet, V1+LM+AL+RL in a single rectangular FOV
-    '(animal_id=21553 AND session=11 AND scan_idx=10)', # ImageNet, V1+LM+AL+RL in a single rectangular FOV
-    '(animal_id=21844 AND session=2 AND scan_idx=12)', # ImageNet, V1+LM+AL+RL in four distinct rois
-    #'(animal_id=22085 AND session=2 AND scan_idx=20)', # ImageNet, V1+LM+AL+RL in four distinct rois, no stack
-    '(animal_id=22083 AND session=7 AND scan_idx=21)', # ImageNet, V1+LM+AL+RL in four distinct rois
-    '(animal_id=22083 AND session=6 AND scan_idx=18)', # ImageNet, V1+PM+AM in a single rectangular FOV
-    '(animal_id=22279 AND session=4 AND scan_idx=23)', # ImageNet, V1+PM in two distinct rois
-]
-
-STATIC = STATIC + MEI_STATIC + HIGHER_AREAS
-
-# set of attributes that uniquely identifies the frame content
-UNIQUE_FRAME = {
-    'stimulus.Frame': ('image_id', 'image_class'),
-    'stimulus.MonetFrame': ('rng_seed', 'orientation'),
-    'stimulus.TrippyFrame': ('rng_seed',),
-}
+dj.config['external-data'] = {'protocol': 'file', 'location': '/external/'}
 
 experiment = dj.create_virtual_module('experiment', 'pipeline_experiment')
 meso = dj.create_virtual_module('meso', 'pipeline_meso')
@@ -137,41 +27,25 @@ treadmill = dj.create_virtual_module('treadmill', 'pipeline_treadmill')
 
 schema = dj.schema('neurodata_static')
 
-extra_info_types = {
-    'condition_hash':'S',
-    'trial_idx':int,
-    'trial_idx':int,
-    'animal_id':int,
-    'session':int,
-    'scan_idx':int,
-    'image_class':'S',
-    'image_id':int,
-    'pre_blank_period':float,
-    'presentation_time':float,
-    'last_flip':int,
-    'trial_ts':'S',
-    'contrast_x':float,
-    'rng_seed_x':float,
-    'pattern_width':float,
-    'pattern_aspect':float,
-    'ori_coherence':float,
-    'ori_mix':float,
-    'orientation':float,
-    'contrast_y':float,
-    'rng_seed_y':float,
-    'tex_ydim':float,
-    'tex_xdim':float,
-    'xnodes':float,
-    'ynodes':float,
-    'up_factor':float,
-    'spatial_freq':float
+# set of attributes that uniquely identifies the frame content
+UNIQUE_FRAME = {
+    'stimulus.Frame': ('image_id', 'image_class'),
+    'stimulus.MonetFrame': ('rng_seed', 'orientation'),
+    'stimulus.TrippyFrame': ('rng_seed',),
 }
 
+@schema
+class StaticScanCandidate(dj.Manual):
+    definition = """ # list of scans to process
+    
+    -> fuse.ScanDone
+    ---
+    candidate_notes='' : varchar(1024)
+    """
 
 @schema
 class StaticScan(dj.Computed):
-    definition = """
-    # gatekeeper for scan and preprocessing settings
+    definition = """ # gatekeeper for scan and preprocessing settings
     
     -> fuse.ScanDone
     """
@@ -185,12 +59,12 @@ class StaticScan(dj.Computed):
         -> fuse.ScanSet.Unit
         """
 
-    key_source = fuse.ScanDone() & STATIC & 'spike_method=5 and segmentation_method=6'
+    key_source = fuse.ScanDone() & StaticScanCandidate & 'spike_method=5 and segmentation_method=6'
 
     @staticmethod
     def complete_key(key):
-        return dict((dj.U('segmentation_method', 'pipe_version') \
-                     & (meso.ScanSet.Unit() & key)).fetch1(dj.key), **key)
+        return dict((dj.U('segmentation_method', 'pipe_version') &
+                     (meso.ScanSet.Unit() & key)).fetch1(dj.key), **key)
 
     def make(self, key):
         self.insert(fuse.ScanDone() & key, ignore_extra_fields=True)
@@ -422,7 +296,6 @@ def process_frame(preproc_key, frame):
         #     raise ValueError('Frame shape {} cannot be processed'.format(frame.shape))
 
     return cv2.resize(frame, imgsize, interpolation=cv2.INTER_AREA).astype(np.float32)
-
 
 
 @schema
@@ -952,7 +825,18 @@ class Treadmill(dj.Computed, FilterMixin, BehaviorMixin):
             tm[~valid] = -1
 
         self.insert1(dict(scan_key, treadmill=tm, valid=valid))
+    
 
+# Patch job for the hardcoding mess that was StaticMultiDataset.fill()
+# Instead of editing the code each time, the user will enter they scan with the desire group_id into here then call StaticMultiDataset.fill()
+@schema
+class StaticMultiDatasetGroupAssignment(dj.Manual):
+    definition = """
+    group_id : int unsigned
+    -> InputResponse
+    ---
+    description = '' : varchar(1024)
+    """
 
 @schema
 class StaticMultiDataset(dj.Manual):
@@ -972,82 +856,18 @@ class StaticMultiDataset(dj.Manual):
         name                    : varchar(50) unique # string description to be used for training
         """
 
-    _template = 'group{group_id:03d}-{animal_id}-{session}-{scan_idx}-{preproc_id}'
+    @staticmethod
+    def fill():
+        _template = 'group{group_id:03d}-{animal_id}-{session}-{scan_idx}-{preproc_id}'
+        for scan in StaticMultiDatasetGroupAssignment.fetch(as_dict=True):
+            # Check if the scan has been added to StaticMultiDataset.Member, if not then do it
+            if len(StaticMultiDataset & dict(group_id = scan['group_id'])) == 0:
+                # Group id has not been added into StaticMultiDataset, thus add it
+                StaticMultiDataset.insert1(dict(group_id = scan['group_id'], description = scan['description']))
 
-
-    def fill(self):
-        selection = [
-            ('11521-7-1', dict(animal_id=11521, session=7, scan_idx=1, preproc_id=0)),
-            ('11521-7-2', dict(animal_id=11521, session=7, scan_idx=2, preproc_id=0)),
-            ('16157-5-5', dict(animal_id=16157, session=5, scan_idx=5, preproc_id=0)),
-            ('16157-5-6', dict(animal_id=16157, session=5, scan_idx=6, preproc_id=0)),
-            ('16157-5-5-scaled', dict(animal_id=16157, session=5, scan_idx=5, preproc_id=2)),
-            ('16312-3-20', dict(animal_id=16312, session=3, scan_idx=20, preproc_id=0)),
-            ('11521-7-1-scaled', dict(animal_id=11521, session=7, scan_idx=1, preproc_id=2)),
-            ('11521-7-2-scaled', dict(animal_id=11521, session=7, scan_idx=2, preproc_id=2)),
-            ('18765-4-6', dict(animal_id=18765, session=4, scan_idx=6, preproc_id=0)),
-            ('16157-5', [dict(animal_id=16157, session=5, scan_idx=5, preproc_id=0),
-                         dict(animal_id=16157, session=5, scan_idx=6, preproc_id=0)]),
-            ('20505-2-24', dict(animal_id=20505, session=2, scan_idx=24, preproc_id=0)),
-            ('20505-3-7', dict(animal_id=20505, session=3, scan_idx=7, preproc_id=0)),
-            ('20505-6-1', dict(animal_id=20505, session=6, scan_idx=1, preproc_id=0)),
-            ('20505-7-29', dict(animal_id=20505, session=7, scan_idx=29, preproc_id=0)),
-            ('20457-5-9', dict(animal_id=20457, session=5, scan_idx=9, preproc_id=0)),
-            ('20505-10-14', dict(animal_id=20505, session=10, scan_idx=14, preproc_id=0)),
-            ('20457-7-10', dict(animal_id=20457, session=7, scan_idx=10, preproc_id=0)),
-            ('20457-8-12', dict(animal_id=20457, session=8, scan_idx=12, preproc_id=0)),
-            ('20505-12-29', dict(animal_id=20505, session=12, scan_idx=29, preproc_id=0)),
-            ('20505-14-33', dict(animal_id=20505, session=14, scan_idx=33, preproc_id=0)),
-            ('20505-11-16', dict(animal_id=20505, session=11, scan_idx=16, preproc_id=0)),
-            ('20210-4-11', dict(animal_id=20210, session=4, scan_idx=11, preproc_id=0)),
-            ('20892-3-14', dict(animal_id=20892, session=3, scan_idx=14, preproc_id=0)),
-            ('20892-9-10', dict(animal_id=20892, session=9, scan_idx=10, preproc_id=0)),
-            ('20210-5-16', dict(animal_id=20210, session=5, scan_idx=16, preproc_id=0)),
-            ('20210-7-14', dict(animal_id=20210, session=7, scan_idx=14, preproc_id=0)),
-            ('20210-8-17', dict(animal_id=20210, session=8, scan_idx=17, preproc_id=0)),
-            ('20892-6-24', dict(animal_id=20892, session=6, scan_idx=24, preproc_id=0)),
-            ('20505-10-14-gamma', dict(animal_id=20505, session=10, scan_idx=14, preproc_id=3)),
-            ('21067-9-17', dict(animal_id=21067, session=9, scan_idx=17, preproc_id=0)),
-            ('21067-15-9', dict(animal_id=21067, session=15, scan_idx=9, preproc_id=0)),
-            ('20892-10-10', dict(animal_id=20892, session=10, scan_idx=10, preproc_id=0)),
-            ('20457-5-17', dict(animal_id=20457, session=5, scan_idx=17, preproc_id=0)),
-            ('20505-10-19', dict(animal_id=20505, session=10, scan_idx=19, preproc_id=0)),
-            ('20892-4-16', dict(animal_id=20892, session=4, scan_idx=16, preproc_id=0)),
-            ('21067-10-18', dict(animal_id=21067, session=10, scan_idx=18, preproc_id=0)),
-            ('21067-11-21', dict(animal_id=21067, session=11, scan_idx=21, preproc_id=0)),
-            ('21067-12-15', dict(animal_id=21067, session=12, scan_idx=15, preproc_id=0)),
-            ('21067-13-14', dict(animal_id=21067, session=13, scan_idx=14, preproc_id=0)),
-            ('21553-11-10', dict(animal_id=21553, session=11, scan_idx=10, preproc_id=0)),
-            ('20892-9-11', dict(animal_id=20892, session=9, scan_idx=11, preproc_id=0)),
-            ('21844-2-12', dict(animal_id=21844, session=2, scan_idx=12, preproc_id=0)),
-            ('22085-2-20', dict(animal_id=22085, session=2, scan_idx=20, preproc_id=0)),
-            ('22083-7-21', dict(animal_id=22083, session=7, scan_idx=21, preproc_id=0)),
-            ('22083-6-18', dict(animal_id=22083, session=6, scan_idx=18, preproc_id=0)),
-            ('22279-4-23', dict(animal_id=22279, session=4, scan_idx=23, preproc_id=0)),
-            ('22564-2-12', dict(animal_id=22564, session=2, scan_idx=12, preproc_id=0)),
-            ('22564-2-13', dict(animal_id=22564, session=2, scan_idx=13, preproc_id=0)),
-            ('22564-3-8', dict(animal_id=22564, session=3, scan_idx=8, preproc_id=0)),
-            ('22564-3-12', dict(animal_id=22564, session=3, scan_idx=12, preproc_id=0)),
-            ('22564-5-12', dict(animal_id=22564, session=5, scan_idx=12, preproc_id=0)),
-            ('22285-4-17', dict(animal_id=22285, session=4, scan_idx=17, preproc_id=0)),
-            ('22281-2-15', dict(animal_id=22281, session=2, scan_idx=15, preproc_id=0)),
-            ('22223-2-15', dict(animal_id=22223, session=2, scan_idx=15, preproc_id=0)),
-            ('20622-2-14', dict(animal_id=20622, session=2, scan_idx=14, preproc_id=0)),
-            ('22620-4-15', dict(animal_id=22620, session=4, scan_idx=15, preproc_id=0)),
-        ]
-        for group_id, (descr, key) in enumerate(selection):
-            entry = dict(group_id=group_id, description=descr)
-            if entry in self:
-                print('Already found entry', entry)
-            else:
-                with self.connection.transaction:
-                    if not (InputResponse() & key):
-                        ValueError('Dataset not found')
-                    self.insert1(entry)
-                    for k in (InputResponse() & key).fetch(dj.key):
-                        k = dict(entry, **k)
-                        name = self._template.format(**k)
-                        self.Member().insert1(dict(k, name=name), ignore_extra_fields=True)
+            # Handle instertion into Member table
+            if len(StaticMultiDataset.Member() & scan) == 0:
+                StaticMultiDataset.Member().insert1(dict(scan, name = _template.format(**scan)), ignore_extra_fields=True)
 
     def fetch_data(self, key, key_order=None):
         assert len(self & key) == 1, 'Key must refer to exactly one multi dataset'

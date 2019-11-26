@@ -64,6 +64,15 @@ MOVIESCANS = [  # '(animal_id=16278 and session=11 and scan_idx between 5 and 9)
     'animal_id=21067 and session=8 and scan_idx=9',
 ]
 
+@schema
+class MovieScanCandidate(dj.Manual):
+    definition = """
+    -> fuse.ScanDone
+    ---
+    candidate_note='': varchar(1024)  # notes about the scan (if any)
+    """
+
+
 
 @schema
 class MovieScan(dj.Computed):
@@ -83,9 +92,9 @@ class MovieScan(dj.Computed):
         -> fuse.ScanSet.Unit
         """
 
-    key_source = (fuse.ScanDone() & MOVIESCANS & dict(segmentation_method=3,
+    key_source = (fuse.ScanDone() & MovieScanCandidate & dict(segmentation_method=3,
                                                       spike_method=5) & 'animal_id < 19000').proj() + \
-                 (fuse.ScanDone() & MOVIESCANS & dict(segmentation_method=6,
+                 (fuse.ScanDone() & MovieScanCandidate & dict(segmentation_method=6,
                                                       spike_method=5) & 'animal_id > 19000').proj()
 
     def _make_tuples(self, key):
@@ -244,8 +253,7 @@ class MovieClips(dj.Computed, FilterMixin):
                                  * stimulus.Clip() & key).fetch1('clip', 'frame_rate')
             vid = imageio.get_reader(io.BytesIO(movie.tobytes()), 'ffmpeg')
             # convert to grayscale and stack to movie in width x height x time
-            m = vid.get_length()
-            movie = np.stack([vid.get_data(i).mean(axis=-1) for i in range(m)], axis=2)
+            movie = np.stack([frame.mean(axis=-1) for frame in vid], axis=2)
         else:
             movie_rel = getattr(stimulus, stimulus_type.split('.')[-1])
             assert len(movie_rel() & key) == 1, 'key must specify exactly one clip'
@@ -393,25 +401,31 @@ class InputResponse(dj.Computed, FilterMixin, TraceMixin):
         pipe = dj.create_virtual_module(pipe, 'pipeline_' + pipe)
 
         # get data relation
-        include_behavior = bool(Eye() * Treadmill() & key)
+        # patch to deal with old eye tracking method
+        EyeTable = Eye() if Eye() & key else Eye2()
+        include_behavior = bool(EyeTable * Treadmill() & key)
 
         # make sure that including areas does not decreas number of neurons
-        assert len(pipe.ScanSet.UnitInfo() * experiment.Layer() * anatomy.AreaMembership() & key) == \
-               len(pipe.ScanSet.UnitInfo() * experiment.Layer() & key), "AreaMembership decreases number of neurons"
+        assert len(pipe.ScanSet.UnitInfo() * anatomy.Layer() * anatomy.AreaMembership() * anatomy.LayerMembership() & key) == \
+               len(pipe.ScanSet.UnitInfo() & key), "AreaMembership decreases number of neurons"
 
         data_rel = MovieClips() * ConditionTier() \
                    * self.Input() * self.ResponseBlock() * stimulus.Condition().proj('stimulus_type')
 
-        if include_behavior:  # restrict trials to those that do not have NaNs in Treadmill or Eye
-            data_rel = data_rel & Eye & Treadmill
+        # for stimulus.Clips, obtain  movie names as well
+        movie_name = data_rel.aggr(dj.U('dummy') * stimulus.Clip.proj('movie_name', dummy='10'), movie_name='IFNULL(movie_name, "NONE")', keep_all_rows=True)
 
-        response = self.ResponseKeys() * (pipe.ScanSet.UnitInfo() * experiment.Layer() * anatomy.AreaMembership()
+
+        if include_behavior:  # restrict trials to those that do not have NaNs in Treadmill or Eye
+            data_rel = data_rel & EyeTable & Treadmill
+
+        response = self.ResponseKeys() * (pipe.ScanSet.UnitInfo() * anatomy.Layer() * anatomy.AreaMembership()
                                           & key & '(um_z >= z_start) and (um_z < z_end)')
 
         # --- fetch all stimuli and classify into train/test/val
-        inputs, hashes, stim_keys, tiers, types, trial_idx, durations = \
-            (data_rel & key).fetch('frames', 'condition_hash', dj.key,
-                                   'tier', 'stimulus_type', 'trial_idx', 'duration',
+        inputs, hashes, stim_keys, tiers, types, trial_idx, durations, movie_names = \
+            (data_rel * movie_name & key).fetch('frames', 'condition_hash', dj.key,
+                                   'tier', 'stimulus_type', 'trial_idx', 'duration', 'movie_name',
                                    order_by='condition_hash ASC, trial_idx ASC')
         train_idx = np.array([t == 'train' for t in tiers], dtype=bool)
         test_idx = np.array([t == 'test' for t in tiers], dtype=bool)
@@ -430,7 +444,7 @@ class InputResponse(dj.Computed, FilterMixin, TraceMixin):
                                                   "layer", "brain_area",
                                                   order_by='row_id ASC')
             if include_behavior:
-                pupil, dpupil, treadmill, center = (Eye() * Treadmill() & key
+                pupil, dpupil, treadmill, center = (EyeTable * Treadmill() & key
                                                     & stim_key).fetch1('pupil', 'dpupil', 'treadmill', 'center')
 
                 behavior.append(np.vstack([pupil, dpupil, treadmill]).T)
@@ -464,6 +478,7 @@ class InputResponse(dj.Computed, FilterMixin, TraceMixin):
 
         hashes = hashes.astype(str)
         types = types.astype(str)
+        movie_names = movie_names.astype(str)
 
         def run_stats(selector, types, ix, axis=None):
             ret = {}
@@ -487,25 +502,37 @@ class InputResponse(dj.Computed, FilterMixin, TraceMixin):
             return ret
 
         # --- compute statistics
-        log.info('Computing statistics on training dataset')
+        # compute on training set if exists - otherwise fall back on to computing on test set
+        if np.any(train_idx):
+            log.info('Computing statistics on training dataset')
+            target_idx = train_idx
+            source = 'train'
+        elif np.any(test_idx):
+            log.info('Computing statistics on test dataset')
+            target_idx = test_idx
+            source = 'test'
+        else:
+            raise ValueError('Emptry train and test!')
+        
         response_selector = lambda ix: np.concatenate([r for take, r in zip(ix, responses) if take], axis=0)
-        response_statistics = run_stats(response_selector, types, train_idx, axis=0)
+        response_statistics = run_stats(response_selector, types, target_idx, axis=0)
 
         input_selector = lambda ix: np.hstack([r.ravel() for take, r in zip(ix, inputs) if take])
-        input_statistics = run_stats(input_selector, types, train_idx)
+        input_statistics = run_stats(input_selector, types, target_idx)
 
         statistics = dict(
             inputs=input_statistics,
-            responses=response_statistics
+            responses=response_statistics,
+            source=source
         )
 
         if include_behavior:
             # ---- include statistics
             behavior_selector = lambda ix: np.concatenate([r for take, r in zip(ix, behavior) if take], axis=0)
-            behavior_statistics = run_stats(behavior_selector, types, train_idx, axis=0)
+            behavior_statistics = run_stats(behavior_selector, types, target_idx, axis=0)
 
             eye_selector = lambda ix: np.concatenate([r for take, r in zip(ix, eye_position) if take], axis=0)
-            eye_statistics = run_stats(eye_selector, types, train_idx, axis=0)
+            eye_statistics = run_stats(eye_selector, types, target_idx, axis=0)
 
             statistics['behavior'] = behavior_statistics
             statistics['eye_position'] = eye_statistics
@@ -521,7 +548,8 @@ class InputResponse(dj.Computed, FilterMixin, TraceMixin):
                       trial_idx=trial_idx.astype(np.uint32),
                       neurons=neurons,
                       tiers=tiers.astype('S'),
-                      statistics=statistics
+                      statistics=statistics,
+                      movie_names=movie_names.astype('S')
                       )
         if include_behavior:
             retval['behavior'] = behavior
@@ -530,8 +558,28 @@ class InputResponse(dj.Computed, FilterMixin, TraceMixin):
 
 
 class BehaviorMixin:
-    def load_eye_traces(self, key):
+    def load_eye_traces_old(self, key):
+        """
+        Older method for loading eye traces, using FittedContour. Explicitly used by Eye2
+        """
         r, center = (pupil.FittedContour.Ellipse() & key).fetch('major_r', 'center', order_by='frame_id ASC')
+        detectedFrames = ~np.isnan(r)
+        xy = np.full((len(r), 2), np.nan)
+        xy[detectedFrames, :] = np.vstack(center[detectedFrames])
+        xy = np.vstack(map(partial(fill_nans, preserve_gap=3), xy.T))
+        if np.any(np.isnan(xy)):
+            log.info('Keeping some nans in the pupil location trace')
+        pupil_radius = fill_nans(r.squeeze(), preserve_gap=3)
+        if np.any(np.isnan(pupil_radius)):
+            log.info('Keeping some nans in the pupil radius trace')
+
+        eye_time = (pupil.Eye() & key).fetch1('eye_time').squeeze()
+        return pupil_radius, xy, eye_time
+
+    def load_eye_traces(self, key):
+        r, center = (pupil.FittedPupil.Circle() & key).fetch('radius', 'center',
+                                                             order_by='frame_id')
+        #r, center = (pupil.FittedContour.Ellipse() & key).fetch('major_r', 'center', order_by='frame_id ASC')
         detectedFrames = ~np.isnan(r)
         xy = np.full((len(r), 2), np.nan)
         xy[detectedFrames, :] = np.vstack(center[detectedFrames])
@@ -560,9 +608,78 @@ class BehaviorMixin:
         t, v = (treadmill.Treadmill() & key).fetch1('treadmill_time', 'treadmill_vel')
         return v.squeeze(), t.squeeze()
 
-
 @schema
 class Eye(dj.Computed, FilterMixin, BehaviorMixin):
+    definition = """
+    # eye movement data
+
+    -> InputResponse.Input
+    ---
+    -> pupil.FittedPupil
+    pupil              : external-data   # pupil dilation trace
+    dpupil             : external-data   # derivative of pupil dilation trace
+    center             : external-data   # center position of the eye
+    """
+
+    @property
+    def key_source(self):
+        return InputResponse & pupil.FittedPupil & stimulus.BehaviorSync
+
+    def _make_tuples(self, scan_key):
+        # pick out the "latest" tracking method to use for pupil info extraction
+        scan_key['tracking_method'] = (pupil.FittedPupil & scan_key).fetch('tracking_method', order_by='tracking_method')[-1]
+        log.info('Populating\n' + pformat(scan_key, indent=10))
+        radius, xy, eye_time = self.load_eye_traces(scan_key)
+        frame_times = InputResponse().load_frame_times(scan_key)
+        behavior_clock = self.load_behavior_timing(scan_key)
+
+        if len(frame_times) - len(behavior_clock) != 0:
+            assert abs(len(frame_times) - len(behavior_clock)) < 2, 'Difference bigger than 2 time points'
+            l = min(len(frame_times), len(behavior_clock))
+            log.info('Frametimes and stimulus.BehaviorSync differ in length! Shortening it.', depth=1)
+            frame_times = frame_times[:l]
+            behavior_clock = behavior_clock[:l]
+
+        fr2beh = NaNSpline(frame_times, behavior_clock, k=1, ext=3)
+        sampling_period = float((Preprocessing() & scan_key).proj(period='1/behavior_lowpass').fetch1('period'))
+        log.info('Downsampling eye signal to {}Hz'.format(1 / sampling_period))
+        deye = np.nanmedian(np.diff(eye_time))
+        h_eye = self.get_filter(sampling_period, deye, 'hamming', warning=True)
+        h_deye = self.get_filter(sampling_period, deye, 'dhamming', warning=True)
+        pupil_spline = NaNSpline(eye_time,
+                                 np.convolve(radius, h_eye, mode='same'), k=1, ext=0)
+
+        dpupil_spline = NaNSpline(eye_time,
+                                  np.convolve(radius, h_deye, mode='same'), k=1, ext=0)
+        center_spline = SplineCurve(eye_time,
+                                    np.vstack([np.convolve(coord, h_eye, mode='same') for coord in xy]),
+                                    k=1, ext=0)
+
+        flip_times, sample_times, trial_keys = \
+            (InputResponse.Input() * MovieClips() * stimulus.Trial() & scan_key).fetch('flip_times', 'sample_times',
+                                                                                       dj.key)
+        flip_times = [ft.squeeze() for ft in flip_times]
+        for trial_key, flips, samps in tqdm(zip(trial_keys, flip_times, sample_times),
+                                            total=len(trial_keys), desc='Trial '):
+            t = fr2beh(flips[0] + samps)
+            pupil_trace = pupil_spline(t)
+            dpupil = dpupil_spline(t)
+            center = center_spline(t)
+            nans = np.array([np.isnan(e).sum() for e in [pupil_trace, dpupil, center]])
+            if np.any(nans > 0):
+                log.info('Found {} NaNs in one of the traces. Skipping trial {}'.format(np.max(nans),
+                                                                                        pformat(trial_key, indent=5),
+                                                                                        ))
+            else:
+                self.insert1(dict(scan_key, **trial_key,
+                                  pupil=pupil_trace,
+                                  dpupil=dpupil,
+                                  center=center),
+                             ignore_extra_fields=True)
+
+
+@schema
+class Eye2(dj.Computed, FilterMixin, BehaviorMixin):
     definition = """
     # eye movement data
 
@@ -580,7 +697,7 @@ class Eye(dj.Computed, FilterMixin, BehaviorMixin):
 
     def _make_tuples(self, scan_key):
         log.info('Populating\n' + pformat(scan_key, indent=10))
-        radius, xy, eye_time = self.load_eye_traces(scan_key)
+        radius, xy, eye_time = self.load_eye_traces_old(scan_key)
         frame_times = InputResponse().load_frame_times(scan_key)
         behavior_clock = self.load_behavior_timing(scan_key)
 
@@ -683,6 +800,31 @@ class Treadmill(dj.Computed, FilterMixin, BehaviorMixin):
                 self.insert1(dict(scan_key, **trial_key, treadmill=tm),
                              ignore_extra_fields=True)
 
+import hashlib
+def key_hash(key):
+    """
+    32-byte hash used for lookup of primary keys of jobs
+    """
+    hashed = hashlib.md5()
+    for k, v in sorted(key.items()):
+        hashed.update(str(v).encode())
+    return hashed.hexdigest()
+
+def list_hash(values):
+    """
+    Returns MD5 digest hash values for a list of values
+    """
+    hashed = hashlib.md5()
+    for v in values:
+        hashed.update(str(v).encode())
+    return hashed.hexdigest()
+
+def hash_key_list(keys):
+    """
+    32-byte hash of a list of primary keys
+    """
+    hashes = [key_hash(k) for k in keys]
+    return list_hash(sorted(hashes))
 
 @schema
 class MovieMultiDataset(dj.Manual):
@@ -701,10 +843,69 @@ class MovieMultiDataset(dj.Manual):
         ---
         name                    : varchar(50) unique # string description to be used for training
         """
+    class MemberHash(dj.Part):
+        definition = """
+        -> master
+        ---
+        member_hash: char(32)   # hash of all members
+        """
 
     _template = 'group{group_id:03d}-{animal_id}-{session}-{scan_idx}-pre{preproc_id}-seg{segmentation_method}-spi{spike_method}-pip{pipe_version}'
 
+    def add_entry(self, description, members, force=False):
+        """
+        Args:
+          description - Short description of the group
+          members - any valid restriction on InputResponse to specify entries to be registered in the group
+          force - if set to True, would proceed with group creation without prompting for confirmation. Defaults to False.
+        """
+        from datajoint.utils import user_choice
+        with self.connection.transaction:
+            if not (InputResponse & members):
+                raise ValueError('Dataset not found')
+            member_keys = (InputResponse & members).fetch('KEY')
+            member_hash = hash_key_list(member_keys)
+            if self.MemberHash & dict(member_hash=member_hash):
+                group_id = (self.MemberHash & dict(member_hash=member_hash)).fetch1('group_id')
+                print('Already found entry with group_id={} correspondig to the specified members:'.format(group_id))
+                for m in member_keys:
+                    print(m)
+                print('Aborting...')
+                return 
+
+            group_id = self.fetch('group_id').max() + 1
+
+            if not force:
+                print('About to make a new group with group_id={} with {} members:'.format(group_id, len(member_keys)))
+                for m in member_keys:
+                    print(m)
+                if user_choice('Proceed?') != 'yes':
+                    print('Aborting new group creation...')
+                    return
+
+            entry = dict(group_id=group_id, description=description)
+            self.insert1(entry)
+            self.MemberHash.insert1(dict(group_id=group_id, member_hash=member_hash))
+            for k in member_keys:
+                k = dict(group_id=group_id, **k)
+                name = self._template.format(**k)
+                self.Member().insert1(dict(k, name=name), ignore_extra_fields=True)
+
+
+    def fill_hash(self):
+        keys = self.fetch('KEY')
+        for key in keys:
+            print(key)
+            member_keys = (InputResponse & (self.Member & key)).fetch('KEY')
+            member_hash = hash_key_list(member_keys)
+            if not self.MemberHash & key:
+                if len(self.MemberHash & dict(member_hash=member_hash)) > 0:
+                    print('Duplicate hash {} when processing!!'.format(member_hash, key['group_id']))
+
+            self.MemberHash.insert1(dict(key, member_hash=member_hash), skip_duplicates=True)
+
     def fill(self):
+        raise DeprecationWarning('Use of this method for filling MovieMultiDataset is deprecated. Please use `add_entry` method instead')
         selection = [
             ('17358-5-3', [
                 dict(animal_id=17358, session=5, scan_idx=3, preproc_id=0, pipe_version=1, segmentation_method=3,
@@ -782,7 +983,9 @@ class MovieMultiDataset(dj.Manual):
         for mkey in (self.Member() & key).fetch(dj.key,
                                                 order_by='animal_id ASC, session ASC, scan_idx ASC, preproc_id ASC'):
             name = (self.Member() & mkey).fetch1('name')
-            include_behavior = bool(Eye() * Treadmill() & mkey)
+            # patch to deal with transitioning from old manual tracking as stored in Eye2 to newer auto tracking in Eye
+            EyeTable = Eye() if Eye() & mkey else Eye2()
+            include_behavior = bool(EyeTable * Treadmill() & mkey)
             data_names = ['inputs', 'responses'] if not include_behavior \
                 else ['inputs',
                       'behavior',
