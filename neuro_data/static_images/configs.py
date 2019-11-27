@@ -1,15 +1,15 @@
 from collections import OrderedDict
-from itertools import product, count
+from itertools import product
 from attorch.dataloaders import RepeatsBatchSampler
 from torch.utils.data.sampler import SubsetRandomSampler
 
-from .data_schemas import StaticMultiDataset
-from .transforms import Subsample, Normalizer, ToTensor
-from ..utils.sampler import SubsetSequentialSampler, BalancedSubsetSampler
-from ..utils.config import ConfigBase
-from ..common import configs as common_configs
+from neuro_data.static_images.data_schemas import StaticMultiDataset
+from neuro_data.static_images.transforms import Subsample, Normalizer, ToTensor
+from neuro_data.utils.sampler import SubsetSequentialSampler, BalancedSubsetSampler
+from neuro_data.utils.config import ConfigBase
+from neuro_data.common import configs as common_configs
 import datajoint as dj
-from .. import logger as log
+from neuro_data import logger as log
 import warnings
 import numpy as np
 from torch.utils.data import DataLoader
@@ -370,14 +370,16 @@ class DataConfig(ConfigBase, dj.Lookup):
             log.info('Placing oracle data samplers')
             for readout_key, loader in loaders.items():
                 ix = loader.sampler.indices
-                types = np.unique(datasets[readout_key].types[ix])
-                if len(types) == 1 and types[0] == 'stimulus.Frame':
-                    condition_hashes = datasets[readout_key].info.frame_image_id
-                elif len(types) == 2 and types[0] in ('stimulus.MonetFrame',  'stimulus.TrippyFrame'):
-                    condition_hashes = datasets[readout_key].condition_hashes
-                else:
-                    raise ValueError(
-                        'Do not recognize types={}'.format(*types))
+                # types = np.unique(datasets[readout_key].types[ix])
+                # if len(types) == 1 and types[0] == 'stimulus.Frame':
+                #     condition_hashes = datasets[readout_key].info.frame_image_id
+                # elif len(types) == 2 and types[0] in ('stimulus.MonetFrame',  'stimulus.TrippyFrame'):
+                #     condition_hashes = datasets[readout_key].condition_hashes
+                # elif len(types) == 1 and types[0] == 'stimulus.ColorFrameProjector':
+                #     condition_hashes = datasets[readout_key].info.colorframeprojector_image_id
+                # else:
+                #     raise ValueError('Do not recognize types={}'.format(*types))
+                condition_hashes = datasets[readout_key].condition_hashes
                 log.info('Replacing ' + loader.sampler.__class__.__name__ +
                          ' with RepeatsBatchSampler')
                 Loader = loader.__class__
@@ -424,7 +426,7 @@ class DataConfig(ConfigBase, dj.Lookup):
         @property
         def content(self):
             for p in product(['all'],
-                             ['stimulus.Frame', '~stimulus.Frame'],
+                             ['stimulus.Frame', '~stimulus.Frame', 'stimulus.ColorFrameProjector'],
                              ['images,responses', ''],
                              [True],
                              [True, False],
