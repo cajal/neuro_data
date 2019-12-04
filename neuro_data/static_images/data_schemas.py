@@ -9,18 +9,16 @@ import pandas as pd
 
 from neuro_data import logger as log
 from neuro_data.utils.data import h5cached, SplineCurve, FilterMixin, fill_nans, NaNSpline
-from neuro_data.static_images.datasets import StaticImageSet
+from neuro_data.static_images import datasets
 
 dj.config['external-data'] = {'protocol': 'file', 'location': '/external/'}
 
 experiment = dj.create_virtual_module('experiment', 'pipeline_experiment')
+reso = dj.create_virtual_module('reso', 'pipeline_reso')
 meso = dj.create_virtual_module('meso', 'pipeline_meso')
 fuse = dj.create_virtual_module('fuse', 'pipeline_fuse')
-beh = dj.create_virtual_module('behavior', 'pipeline_behavior')
 pupil = dj.create_virtual_module('pupil', 'pipeline_eye')
 stimulus = dj.create_virtual_module('stimulus', 'pipeline_stimulus')
-vis = dj.create_virtual_module('vis', 'pipeline_vis')
-maps = dj.create_virtual_module('maps', 'pipeline_map')
 shared = dj.create_virtual_module('shared', 'pipeline_shared')
 anatomy = dj.create_virtual_module('anatomy', 'pipeline_anatomy')
 treadmill = dj.create_virtual_module('treadmill', 'pipeline_treadmill')
@@ -32,7 +30,10 @@ UNIQUE_FRAME = {
     'stimulus.Frame': ('image_id', 'image_class'),
     'stimulus.MonetFrame': ('rng_seed', 'orientation'),
     'stimulus.TrippyFrame': ('rng_seed',),
+    'stimulus.ColorFrameProjector': ('image_id', 'image_class'),
 }
+
+IMAGE_CLASSES = 'image_class in ("imagenet", "imagenet_v2_gray")' # all valid natural image classes
 
 @schema
 class StaticScanCandidate(dj.Manual):
@@ -42,6 +43,15 @@ class StaticScanCandidate(dj.Manual):
     ---
     candidate_notes='' : varchar(1024)
     """
+    @staticmethod
+    def fill(key, candidate_notes='', segmentation_method=6, spike_method=5,
+             pipe_version=1):
+        """ Fill an entry with key"""
+        StaticScanCandidate.insert1({'segmentation_method': segmentation_method,
+                                     'spike_method': spike_method,
+                                     'pipe_version': pipe_version, **key,
+                                     'candidate_notes': candidate_notes},
+                                    skip_duplicates=True)
 
 @schema
 class StaticScan(dj.Computed):
@@ -122,10 +132,18 @@ class ImageNetSplit(dj.Lookup):
             The exact split assigned will depend on the scans used in fill and the order
             that this table was filled. Not ideal.
         """
+        # Find out whether we are using the old pipeline (grayscale only) or the new version
+        if stimulus.Frame & (stimulus.Trial & scan_key):
+            frame_table = stimulus.Frame
+        elif stimulus.ColorFrameProjector & (stimulus.Trial & scan_key):
+            frame_table = stimulus.ColorFrameProjector
+        else:
+            print('Static images were not shown for this scan')
+
         # Get all image ids in this scan
-        all_frames = stimulus.Frame * stimulus.Trial & scan_key & {'image_class': 'imagenet'}
-        unique_frames = dj.U('image_id').aggr(all_frames, repeats='COUNT(image_id)')
-        image_ids = unique_frames.fetch('image_id', order_by='repeats DESC')
+        all_frames = frame_table * stimulus.Trial & scan_key & IMAGE_CLASSES
+        unique_frames = dj.U('image_id', 'image_class').aggr(all_frames, repeats='COUNT(*)')
+        image_ids, image_classes = unique_frames.fetch('image_id', 'image_class', order_by='repeats DESC')
         num_frames = len(image_ids)
         # * NOTE: this fetches all oracle images first and the rest in a "random" order;
         # we use that random order to make the validation/training division below.
@@ -140,12 +158,15 @@ class ImageNetSplit(dj.Lookup):
         num_validation = int(np.ceil((num_frames - num_oracles) * 0.1))  # 10% validation examples
 
         # Insert
-        self.insert([{'image_id': iid, 'image_class': 'imagenet', 'tier': 'test'} for iid
-                     in image_ids[:num_oracles]], skip_duplicates=True)
-        self.insert([{'image_id': iid, 'image_class': 'imagenet', 'tier': 'validation'}
-                     for iid in image_ids[num_oracles: num_oracles + num_validation]])
-        self.insert([{'image_id': iid, 'image_class': 'imagenet', 'tier': 'train'} for iid
-                     in image_ids[num_oracles + num_validation:]])
+        self.insert([{'image_id': iid, 'image_class': ic, 'tier': 'test'} for iid, ic in
+                     zip(image_ids[:num_oracles], image_classes[:num_oracles])],
+                    skip_duplicates=True)
+        self.insert([{'image_id': iid, 'image_class': ic, 'tier': 'validation'} for
+                     iid, ic in zip(image_ids[num_oracles: num_oracles + num_validation],
+                                    image_classes[num_oracles: num_oracles + num_validation])])
+        self.insert([{'image_id': iid, 'image_class': ic, 'tier': 'train'} for iid, ic in
+                     zip(image_ids[num_oracles + num_validation:],
+                         image_classes[num_oracles + num_validation:])])
 
 
 @schema
@@ -171,9 +192,10 @@ class ConditionTier(dj.Computed):
 
     def check_train_test_split(self, frames, cond):
         stim = getattr(stimulus, cond['stimulus_type'].split('.')[-1])
-        train_test = dj.U(*UNIQUE_FRAME[cond['stimulus_type']]).aggr(frames * stim, train='sum(1-test)',
-                                                                     test='sum(test)') \
-                     & 'train>0 and test>0'
+        train_test = (dj.U(*UNIQUE_FRAME[cond['stimulus_type']]).aggr(frames * stim,
+                                                                      train='sum(1-test)',
+                                                                      test='sum(test)') &
+                      'train>0 and test>0')
         assert len(train_test) == 0, 'Train and test clips do overlap'
 
     def fill_up(self, tier, frames, cond, key, m):
@@ -213,23 +235,25 @@ class ConditionTier(dj.Computed):
         # "stimulus.Frame","stimulus.MonetFrame", "stimulus.TrippyFrame"
         conditions = dj.U('stimulus_type').aggr(stimulus.Condition() & (stimulus.Trial() & key),
                                                 count='count(*)') \
-                     & 'stimulus_type in ("stimulus.Frame","stimulus.MonetFrame", "stimulus.TrippyFrame")'
+                     & 'stimulus_type in ("stimulus.Frame", "stimulus.MonetFrame", "stimulus.TrippyFrame", "stimulus.ColorFrameProjector")'
         for cond in conditions.fetch(as_dict=True):
             # hack for compatibility with previous datasets
-            if cond['stimulus_type'] == 'stimulus.Frame':
+            if cond['stimulus_type'] in ['stimulus.Frame', 'stimulus.ColorFrameProjector']:
+                frame_table = (stimulus.Frame if cond['stimulus_type'] == 'stimulus.Frame'
+                               else stimulus.ColorFrameProjector)
 
                 # deal with ImageNet frames first
                 log.info('Inserting assignment from ImageNetSplit')
-                targets = StaticScan * stimulus.Frame * ImageNetSplit & (stimulus.Trial & key) & 'image_class = "imagenet"'
+                targets = StaticScan * frame_table * ImageNetSplit & (stimulus.Trial & key) & IMAGE_CLASSES
                 print('Inserting {} imagenet conditions!'.format(len(targets)))
                 self.insert(targets, ignore_extra_fields=True)
 
                 # deal with MEI images, assigning tier test for all images
-                assignment = (stimulus.Frame() & 'image_class in ("cnn_mei", "lin_rf", "multi_cnn_mei", "multi_lin_rf")').proj(tier='"train"')
-                self.insert(StaticScan * stimulus.Frame * assignment & (stimulus.Trial & key), ignore_extra_fields=True)
+                assignment = (frame_table & 'image_class in ("cnn_mei", "lin_rf", "multi_cnn_mei", "multi_lin_rf")').proj(tier='"train"')
+                self.insert(StaticScan * frame_table * assignment & (stimulus.Trial & key), ignore_extra_fields=True)
 
                 # make sure that all frames were assigned
-                remaining = (stimulus.Trial * stimulus.Frame & key) - self
+                remaining = (stimulus.Trial * frame_table & key) - self
                 assert len(remaining) == 0, 'There are still unprocessed Frames'
                 continue
 
@@ -289,11 +313,6 @@ def process_frame(preproc_key, frame):
     log.info('Downsampling frame')
     if not frame.shape[0] / imgsize[1] == frame.shape[1] / imgsize[0]:
         log.warning('Image size would change aspect ratio.')
-        # if frame.shape == (126, 216):
-        #     log.warning('Using center crop')
-        #     frame = frame[4:4 + 117, 4:4 + 208]
-        # else:
-        #     raise ValueError('Frame shape {} cannot be processed'.format(frame.shape))
 
     return cv2.resize(frame, imgsize, interpolation=cv2.INTER_AREA).astype(np.float32)
 
@@ -323,6 +342,9 @@ class Frame(dj.Computed):
         elif stimulus.TrippyFrame & key:
             assert (stimulus.TrippyFrame & key).fetch1('pre_blank_period') > 0, 'we assume blank periods'
             return (stimulus.TrippyFrame & key).fetch1('img')
+        if stimulus.ColorFrameProjector & key:
+            assert (stimulus.ColorFrameProjector & key).fetch1('pre_blank_period') > 0, 'we assume blank periods'
+            return (stimulus.StaticImage.Image & (stimulus.ColorFrameProjector & key)).fetch1('image')
         else:
             raise KeyError('Cannot find matching stimulus relation')
 
@@ -886,7 +908,7 @@ class StaticMultiDataset(dj.Manual):
 
             h5filename = InputResponse().get_filename(mkey)
             log.info('Loading dataset {} --> {}'.format(name, h5filename))
-            ret[name] = StaticImageSet(h5filename, *data_names)
+            ret[name] = datasets.StaticImageSet(h5filename, *data_names)
         if key_order is not None:
             log.info('Reordering datasets according to given key order {}'.format(', '.join(key_order)))
             ret = OrderedDict([
