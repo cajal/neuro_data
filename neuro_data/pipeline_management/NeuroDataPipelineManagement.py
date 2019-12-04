@@ -64,13 +64,15 @@ class NeuroDataPipelineManagement():
 
         # Check if the scan has been processed completely
         if pipeline_fuse.ScanDone() & target_scan:
+            print('[Preprocessing Check]: ScanDone Check Passed')
+        else:
             print('[Preprocessing Check]: ' + str(target_scan) + ' Scan has not been processed yet, please look into pipeline for details')
             return
-        else:
-            print('[Preprocessing Check]: ScanDone Check Passed')
 
         # Check if neurons area are labeled
         if pipeline_anatomy.AreaMembership() & target_scan:
+            print('[Preprocessing Check]: AreaMembership Check Passed')
+        else:
             print('[Preprocessing Check]: ' + str(target_scan) + " AreaMembership is not populated")
             user_input = None
             while user_input not in ['y', 'n']:
@@ -87,11 +89,11 @@ class NeuroDataPipelineManagement():
                     self.manually_insert_area_for_scan(target_scan, area)
                 elif user_input == 'n':
                     return
-        else:
-            print('[Preprocessing Check]: AreaMembership Check Passed')
 
         # Check if neuron layers are labeled
         if pipeline_anatomy.LayerMembership() & target_scan:
+            print('[Preprocessing Check]: LayerMembership Check Passed')
+        else:
             print('[Preprocessing Check]: ' + str(target_scan) + " LayerMembership is not populated")
 
             user_input = None
@@ -110,15 +112,13 @@ class NeuroDataPipelineManagement():
                     self.manually_insert_layer_for_scan(target_scan, layer)
                 elif user_input == 'n':
                     return
-        else:
-            print('[Preprocessing Check]: LayerMembership Check Passed')
 
         # Check pipeline_stimulus.Sync() table
         if pipeline_stimulus.Sync() & target_scan:
+            print('[Preprocessing Check]: Sync Check Passed')
+        else:
             print('[Preprocessing Check]: ' + str(target_scan) + ' pipeline_stimulus.Sync() table is not processed or failed to processed')
             return
-        else:
-            print('[Preprocessing Check]: Sync Check Passed')
 
         # All tables requirements are met, begin neurodata dataset population
         print('[Preprocessing Check]: All table requirements passed, beginning neuro_data populating:')
@@ -128,10 +128,10 @@ class NeuroDataPipelineManagement():
 
         # Insert into StaticScanCandidate
         if StaticScanCandidate & target_scan_done_key:
+            print('[NeuroData.Static Populate]: Scan has already been added to StaticScanCandidate')
+        else:
             StaticScanCandidate.insert1(target_scan_done_key)
             print('[NeuroData.Static Populate]: Successfully inserted Scan into StaticScanCandidate')
-        else:
-            print('[NeuroData.Static Populate]: Scan has already been added to StaticScanCandidate')
 
         # Populating StaticScans
         print("[NeuroData.Static Populate]: Populating StaticScan:")
@@ -168,14 +168,17 @@ class NeuroDataPipelineManagement():
         print("[NeuroData.Static Populate]: Inserting Scan into StaticMultiDatasetGroupAssignment with next largest group_id:")
         target_input_response_key = (InputResponse & target_scan & dict(preproc_id=0)).fetch1('KEY')
         if StaticMultiDatasetGroupAssignment & target_input_response_key:
+            print("[NeuroData.Static Populate]: Scan is already in StaticMultiDatasetGroupAssignment, skipping")
+        else:
             target_input_response_key['group_id'] = StaticMultiDatasetGroupAssignment().fetch('group_id').max() + 1
             target_input_response_key['description'] = 'Inserted from PipelineManagement'
             StaticMultiDatasetGroupAssignment.insert1(target_input_response_key)
-        else:
-            print("[NeuroData.Static Populate]: Scan is already in StaticMultiDatasetGroupAssignment, skipping")
-
+            
         # Fill StaticMultiDataset
         print("[NeuroData.Static Populate]: Filling StaticMultiDataset:")
         StaticMultiDataset().fill()
+
+        print('[NeuroData.Static Populate]: Generating HDF5 File')
+        InputResponse().get_filename(target_scan)
 
         print('[PROCESSING COMPLETED FOR SCAN: ' + str(target_scan) + ']\n')

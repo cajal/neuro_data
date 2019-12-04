@@ -33,7 +33,7 @@ UNIQUE_FRAME = {
     'stimulus.ColorFrameProjector': ('image_id', 'image_class'),
 }
 
-IMAGE_CLASSES = 'image_class in ("imagenet", "imagenet_v2_gray")' # all valid natural image classes
+IMAGE_CLASSES = 'image_class in ("imagenet", "imagenet_v2_gray", "imagenet_v2_rgb")' # all valid natural image classes
 
 @schema
 class StaticScanCandidate(dj.Manual):
@@ -149,6 +149,8 @@ class ImageNetSplit(dj.Lookup):
         # we use that random order to make the validation/training division below.
 
         # Get number of repeated frames
+        assert len(unique_frames) != 0, 'unique_frames == 0'
+
         n = int(np.median(unique_frames.fetch('repeats')))  # HACK
         num_oracles = len(unique_frames & 'repeats > {}'.format(n))  # repeats
         if num_oracles == 0:
@@ -163,10 +165,10 @@ class ImageNetSplit(dj.Lookup):
                     skip_duplicates=True)
         self.insert([{'image_id': iid, 'image_class': ic, 'tier': 'validation'} for
                      iid, ic in zip(image_ids[num_oracles: num_oracles + num_validation],
-                                    image_classes[num_oracles: num_oracles + num_validation])])
+                                    image_classes[num_oracles: num_oracles + num_validation])], skip_duplicates=True)
         self.insert([{'image_id': iid, 'image_class': ic, 'tier': 'train'} for iid, ic in
                      zip(image_ids[num_oracles + num_validation:],
-                         image_classes[num_oracles + num_validation:])])
+                         image_classes[num_oracles + num_validation:])], skip_duplicates=True)
 
 
 @schema
@@ -239,8 +241,7 @@ class ConditionTier(dj.Computed):
         for cond in conditions.fetch(as_dict=True):
             # hack for compatibility with previous datasets
             if cond['stimulus_type'] in ['stimulus.Frame', 'stimulus.ColorFrameProjector']:
-                frame_table = (stimulus.Frame if cond['stimulus_type'] == 'stimulus.Frame'
-                               else stimulus.ColorFrameProjector)
+                frame_table = (stimulus.Frame if cond['stimulus_type'] == 'stimulus.Frame' else stimulus.ColorFrameProjector)
 
                 # deal with ImageNet frames first
                 log.info('Inserting assignment from ImageNetSplit')
