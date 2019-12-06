@@ -534,6 +534,10 @@ class InputResponse(dj.Computed, FilterMixin):
         if len(images.shape) == 3:
             log.info('Adding channel dimension')
             images = images[:, None, ...]
+        elif len(images.shape) == 4:
+            print('hihihi')
+            images = images.transpose(0, 3, 1, 2)
+        print(images.shape)
         hashes = hashes.astype(str)
         types = types.astype(str)
 
