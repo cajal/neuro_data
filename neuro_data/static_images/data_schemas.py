@@ -343,15 +343,26 @@ class Frame(dj.Computed):
         elif stimulus.TrippyFrame & key:
             assert (stimulus.TrippyFrame & key).fetch1('pre_blank_period') > 0, 'we assume blank periods'
             return (stimulus.TrippyFrame & key).fetch1('img')
-        if stimulus.ColorFrameProjector & key:
+        elif stimulus.ColorFrameProjector & key:
+            # stimulus is type ColorFrameProjector which means we need to look up what channel was map to what and select base on
             assert (stimulus.ColorFrameProjector & key).fetch1('pre_blank_period') > 0, 'we assume blank periods'
-            return (stimulus.StaticImage.Image & (stimulus.ColorFrameProjector & key)).fetch1('image')
+
+            original_img = (stimulus.StaticImage.Image & (stimulus.ColorFrameProjector & key)).fetch1('image')
+            if len(original_img.shape) == 2:
+                # Only 1 channel
+                return original_img
+            else:
+                # There is more then 1 channel, thus we need get the channel mappings for the project, where the number signifies which RGB channel maps to the project channels
+                channel_mappings = (stimulus.ColorFrameProjector() & key).fetch1('channel_1', 'channel_2', 'channel_3')
+                image_sub_channels_to_include = []
+                for channel_mapping in channel_mappings:
+                    if channel_mapping is not None:
+                        image_sub_channels_to_include.append(original_img[:, :, channel_mapping - 1])
+                return np.stack(image_sub_channels_to_include).transpose(1, 2, 0)
         else:
             raise KeyError('Cannot find matching stimulus relation')
 
     def make(self, key):
-
-
         log.info(80 * '-')
         log.info('Processing key ' + pformat(dict(key)))
 
@@ -670,6 +681,7 @@ class InputResponse(dj.Computed, FilterMixin):
         if include_behavior:
             retval['behavior'] = behavior
             retval['pupil_center'] = pupil_center
+            
         return retval
 
 
