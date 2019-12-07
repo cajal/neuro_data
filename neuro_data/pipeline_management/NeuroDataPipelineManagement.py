@@ -182,3 +182,23 @@ class NeuroDataPipelineManagement():
         InputResponse().get_filename(target_scan)
 
         print('[PROCESSING COMPLETED FOR SCAN: ' + str(target_scan) + ']\n')
+
+    def delete_scans(self, target_scans):
+        (InputResponse.Input() & target_scans).delete_quick()
+        (Frame() & (ConditionTier & target_scans)).delete_quick()
+        (ConditionTier() & target_scans).delete_quick()
+
+        (Eye() & target_scans).delete_quick()
+        (InputResponse.Input() & target_scans).delete_quick()
+        (InputResponse.ResponseKeys() & target_scans).delete_quick()
+        (InputResponse.ResponseBlock & target_scans).delete_quick()
+        (Treadmill() & target_scans).delete_quick()
+
+        static_multi_dataset_rel_to_del = StaticMultiDataset & (StaticMultiDataset.Member & target_scans)
+        (StaticMultiDataset.Member & target_scans).delete_quick()
+        static_multi_dataset_rel_to_del.delete_quick()
+        (StaticMultiDatasetGroupAssignment & target_scans).delete_quick()
+        (InputResponse() & target_scans).delete_quick()
+
+        (StaticScan().Unit & target_scans).delete_quick()
+        (StaticScan() & target_scans).delete_quick()
