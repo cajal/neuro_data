@@ -372,8 +372,8 @@ class Frame(dj.Computed):
         Returns:
             stimulus_types (list<str>): A list of string containing the stimulus_type name(s)
         """
+        
         key = ConditionTier & scan_key
-
         stimulus_types = []
 
         if stimulus.Frame & key:
