@@ -333,7 +333,6 @@ class Frame(dj.Computed):
         return stimulus.Condition() * Preprocessing() & ConditionTier()
 
     def load_frame(self, key):
-
         if stimulus.Frame & key:
             assert (stimulus.Frame & key).fetch1('pre_blank_period') > 0, 'we assume blank periods'
             return (stimulus.StaticImage.Image & (stimulus.Frame & key)).fetch1('image')
@@ -361,6 +360,31 @@ class Frame(dj.Computed):
                 return np.stack(image_sub_channels_to_include).transpose(1, 2, 0)
         else:
             raise KeyError('Cannot find matching stimulus relation')
+
+    @staticmethod
+    def get_stimulus_type(key):
+        """
+        Function that returns a list of str indicating what stimulus_types are in the given condition_hash
+
+        Args:
+            key (dict): A key containing condition_hash of the image. Can be obtain from ConditionTier restricting to a specific scan
+        
+        Returns:
+            stimulus_types (list<str>): A list of string containing the stimulus_type name(s)
+        """
+        
+        stimulus_types = []
+
+        if stimulus.Frame & key:
+            stimulus_types.append('stimulus.Frame')
+        if stimulus.MonetFrame & key:
+            stimulus_types.append('stimulus.MonetFrame')
+        if stimulus.TrippyFrame & key:
+            stimulus_types.append('stimulus.TrippyFrame')
+        if stimulus.ColorFrameProjector & key:
+            stimulus_types.append('stimulus.ColorFrameProjector')
+
+        return stimulus_types
 
     def make(self, key):
         log.info(80 * '-')
