@@ -362,17 +362,18 @@ class Frame(dj.Computed):
             raise KeyError('Cannot find matching stimulus relation')
 
     @staticmethod
-    def get_stimulus_type(key):
+    def get_stimulus_type(scan_key):
         """
         Function that returns a list of str indicating what stimulus_types are in the given condition_hash
 
         Args:
-            key (dict): A key containing condition_hash of the image. Can be obtain from ConditionTier restricting to a specific scan
+            scan_key (dict): A key that contains animial_id, session, scan_idx, pipe_version, segmentation_method, and spike_method. Most of the time the first 3 attributes are sufficient
         
         Returns:
             stimulus_types (list<str>): A list of string containing the stimulus_type name(s)
         """
-        
+        key = ConditionTier & scan_key
+
         stimulus_types = []
 
         if stimulus.Frame & key:
