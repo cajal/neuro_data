@@ -2,7 +2,7 @@ import numpy as np
 import datajoint as dj
 
 
-from neuro_data.static_images.data_schemas import StaticScanCandidate, StaticScan, ConditionTier, Frame, InputResponse, Eye, Treadmill, StaticMultiDataset, StaticMultiDatasetGroupAssignment, ExcludedTrial
+from neuro_data.static_images.data_schemas import StaticScanCandidate, StaticScan, ImageNetSplit, ConditionTier, Frame, InputResponse, Eye, Treadmill, StaticMultiDataset, StaticMultiDatasetGroupAssignment, ExcludedTrial
 
 pipeline_anatomy = dj.create_virtual_module('pipeline_anatomy', 'pipeline_anatomy')
 pipeline_fuse = dj.create_virtual_module('pipeline_fuse', 'pipeline_fuse')
@@ -90,7 +90,7 @@ class NeuroDataPipelineManagement():
                             print('Invalid Area!')
                             area = input('Input area to label neurons with:')
                             
-                        self.manually_insert_area_for_scan(target_scan, area)
+                        NeuroDataPipelineManagement.manually_insert_area_for_scan(target_scan, area)
                     elif user_input == 'n':
                         return
 
@@ -113,7 +113,7 @@ class NeuroDataPipelineManagement():
                             layer = input('Input layer to label neurons with:')
                             
                         
-                        self.manually_insert_layer_for_scan(target_scan, layer)
+                        NeuroDataPipelineManagement.manually_insert_layer_for_scan(target_scan, layer)
                     elif user_input == 'n':
                         return
 
@@ -140,6 +140,10 @@ class NeuroDataPipelineManagement():
             # Populating StaticScans
             print("[NeuroData.Static Populate]: Populating StaticScan:")
             StaticScan().populate(target_scan_done_key)
+
+            # Populating ImageNetSplit
+            print("[NeuroData.Static Populate]: Populating ImageNetSplit:")
+            ImageNetSplit().fill(target_scan_done_key)
 
             # Populate ConditionTier
             print("[NeuroData.Static Populate]: Populating ConditionTier:")
