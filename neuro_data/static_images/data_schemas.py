@@ -332,7 +332,8 @@ class Frame(dj.Computed):
     def key_source(self):
         return stimulus.Condition() * Preprocessing() & ConditionTier()
 
-    def load_frame(self, key):
+    @staticmethod
+    def load_frame(key):
         if stimulus.Frame & key:
             assert (stimulus.Frame & key).fetch1('pre_blank_period') > 0, 'we assume blank periods'
             return (stimulus.StaticImage.Image & (stimulus.Frame & key)).fetch1('image')
@@ -357,7 +358,7 @@ class Frame(dj.Computed):
                 for channel_mapping in channel_mappings:
                     if channel_mapping is not None:
                         image_sub_channels_to_include.append(original_img[:, :, channel_mapping - 1])
-                return np.stack(image_sub_channels_to_include).transpose(1, 2, 0)
+                return np.stack(image_sub_channels_to_include, axis=-1)
         else:
             raise KeyError('Cannot find matching stimulus relation')
 
@@ -560,9 +561,7 @@ class InputResponse(dj.Computed, FilterMixin):
             log.info('Adding channel dimension')
             images = images[:, None, ...]
         elif len(images.shape) == 4:
-            print('hihihi')
             images = images.transpose(0, 3, 1, 2)
-        print(images.shape)
         hashes = hashes.astype(str)
         types = types.astype(str)
 
