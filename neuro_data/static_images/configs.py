@@ -217,7 +217,6 @@ class StimulusTypeMixin:
             datasets, tier, batch_size, stimulus_types, Sampler)
         return datasets, loaders
 
-
 class AreaLayerRawMixin(StimulusTypeMixin):
     def load_data(self, key, tier=None, batch_size=1, key_order=None, stimulus_types=None, Sampler=None, **kwargs):
         log.info('Ignoring input arguments: "' +
@@ -247,7 +246,6 @@ class AreaLayerRawMixin(StimulusTypeMixin):
             else:
                 dataset.transforms.insert(-1, Subsample(idx))
         return datasets, loaders
-
 
 class AreaLayerModelMixin:
     def load_data(self, key, prep_cuda=True, prep_batch_size=1, **kwargs):
@@ -302,12 +300,6 @@ class AreaLayerModelMixin:
 
         return datasets, loaders
 
-
-
-
-
-
-
 class AreaLayerNoiseMixin(AreaLayerRawMixin):
     def load_data(self, key, balanced=False, **kwargs):
         tier = kwargs.pop('tier', None)
@@ -352,7 +344,6 @@ class AreaLayerNoiseMixin(AreaLayerRawMixin):
                         np.flatnonzero(tier_bool), dataset.types, mode='longest')
                 self.log_loader(loaders[k])
         return datasets, loaders
-
 
 @schema
 class DataConfig(ConfigBase, dj.Lookup):
@@ -434,7 +425,6 @@ class DataConfig(ConfigBase, dj.Lookup):
                              ['V1', 'LM']):
                 yield dict(zip(self.heading.dependent_attributes, p))
 
-
     class ModeledAreaLayer(dj.Part, AreaLayerModelMixin):
         definition = """
         -> master
@@ -448,7 +438,6 @@ class DataConfig(ConfigBase, dj.Lookup):
                 (0,)
             ]:
                 yield dict(zip(self.heading.dependent_attributes, p))
-
 
     class MultipleAreasOneLayer(dj.Part, AreaLayerRawMixin):
         definition = """
