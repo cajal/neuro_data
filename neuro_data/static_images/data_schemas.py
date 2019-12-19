@@ -165,10 +165,10 @@ class ImageNetSplit(dj.Lookup):
                     skip_duplicates=True)
         self.insert([{'image_id': iid, 'image_class': ic, 'tier': 'validation'} for
                      iid, ic in zip(image_ids[num_oracles: num_oracles + num_validation],
-                                    image_classes[num_oracles: num_oracles + num_validation])], skip_duplicates=True)
+                                    image_classes[num_oracles: num_oracles + num_validation])])
         self.insert([{'image_id': iid, 'image_class': ic, 'tier': 'train'} for iid, ic in
                      zip(image_ids[num_oracles + num_validation:],
-                         image_classes[num_oracles + num_validation:])], skip_duplicates=True)
+                         image_classes[num_oracles + num_validation:])])
 
 
 @schema
