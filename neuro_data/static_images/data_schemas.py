@@ -301,6 +301,8 @@ class Preprocessing(dj.Lookup):
          'filter': 'hamming', 'gamma': False},
         {'preproc_id': 3, 'offset': 0.05, 'duration': 0.5, 'row': 36, 'col': 64,
          'filter': 'hamming', 'gamma': True},
+        {'preproc_id': 4, 'offset': 0.03, 'duration': 0.5, 'row': 36, 'col': 64,
+         'filter': 'hamming', 'gamma': True},
     ]
 
 
@@ -364,138 +366,196 @@ class Frame(dj.Computed):
         self.insert1(dict(key, frame=frame))
 
 
+def get_traces(key):
+    """ Get spike traces for all cells in these scan (along with their times in stimulus
+    clock).
+
+    Arguments:
+        key (dict): Key for a scan (or field).
+
+    Returns:
+        traces (np.array): A (num_units x num_scan_frames) array with all spike traces.
+            Traces are restricted to those classified as soma and ordered by unit_id.
+        unit_ids (list): A (num_units) list of unit_ids in traces.
+        trace_times (np.array): A (num_units x num_scan_frames) array with the time (in
+            seconds) for each unit's trace in stimulus clock (same clock as times in
+            stimulus.Trial).
+
+    Note: On notation
+        What is called a frametime in stimulus.Sync and stimulus.Trial is actually the
+        time each depth of scanning started. So for a scan with 1000 frames and four
+        depths per frame/volume, there will be 4000 "frametimes".
+
+    Note 2:
+        For a scan with 10 depths, a frame i is considered complete if all 10 depths were
+        recorded and saved in the tiff file, frame_times however save the starting time of
+        each depth independently (for instance if 15 depths were recorded there will be
+        one scan frame but 15 frame times, the last 5 have to be ignored).
+    """
+    # Pick right pipeline for this scan (reso or meso)
+    pipe_name = (fuse.ScanDone & key).fetch1('pipe')
+    pipe = reso if pipe_name == 'reso' else meso
+
+    # Get traces
+    units = pipe.ScanSet.Unit() & key & (pipe.MaskClassification.Type & {'type': 'soma'})
+    spikes = pipe.Activity.Trace() * pipe.ScanSet.UnitInfo() & units.proj()
+    unit_ids, traces, ms_delays = spikes.fetch('unit_id', 'trace', 'ms_delay',
+                                               order_by='unit_id')
+
+    # Get time of each scan frame for this scan (in stimulus clock; same as in Trial)
+    depth_times = (stimulus.Sync & key).fetch1('frame_times')
+    num_frames = (pipe.ScanInfo & key).fetch1('nframes')
+    num_depths = len(dj.U('z') & (pipe.ScanInfo.Field.proj('z', nomatch='field') & key))
+    if len(depth_times) / num_depths < num_frames or (len(depth_times) / num_depths >
+                                                      num_frames + 1):
+        raise ValueError('Mismatch between frame times and tiff frames')
+    frame_times = depth_times[:num_depths * num_frames:num_depths]  # one per frame
+
+    # Add per-cell delay to each frame_time
+    trace_times = np.add.outer(ms_delays / 1000, frame_times)  # num_traces x num_frames
+
+    return np.stack(traces), np.stack(unit_ids), trace_times
+
+
+def trapezoid_integration(x, y, x0, xf):
+    """ Integrate y (recorded at points x) from x0 to xf.
+
+    Arguments:
+        x (np.array): Timepoints (num_timepoints) when y was recorded.
+        y (np.array): Signal (num_timepoints).
+        x0 (float or np.array): Starting point(s). Could be a 1-d array (num_samples).
+        xf (float or np.array): Final point. Same shape as x0.
+
+    Returns:
+        Integrated signal from x0 to xf:
+            a 0-d array (i.e., float) if x0 and xf are floats
+            a 1-d array (num_samples) if x0 and xf are 1-d arrays
+    """
+    # Basic checks
+    if np.any(xf <= x0):
+        raise ValueError('xf has to be higher than x0')
+    if np.any(x0 < x[0]) or np.any(xf > x[-1]):
+        raise ValueError('Cannot integrate outside the original range x of the signal.')
+
+    # Compute area under each trapezoid
+    trapzs = np.diff(x) * (y[:-1] + y[1:]) / 2  # index i is trapezoid from point i to point i + 1
+
+    # Find timepoints right before x0 and xf
+    idx_before_x0 = np.searchsorted(x, x0) - 1
+    idx_before_xf = np.searchsorted(x, xf) - 1
+
+    # Compute y at the x0 and xf points
+    slopes = (y[1:] - y[:-1]) / (x[1:] - x[:-1])  # index i is slope from p_i to p_{i+1}
+    y0 = y[idx_before_x0] + slopes[idx_before_x0] * (x0 - x[idx_before_x0])
+    yf = y[idx_before_xf] + slopes[idx_before_xf] * (xf - x[idx_before_xf])
+
+    # Sum area of all interior trapezoids
+    indices = np.stack([idx_before_x0 + 1, idx_before_xf], axis=-1).ravel()  # interleaved x0 and xf for all samples
+    integral = np.add.reduceat(trapzs, indices, axis=-1)[::2].squeeze()
+
+    # Add area of edge trapezoids (ones that go from x0 to first_x_sample and from last_x_sample to xf)
+    integral += (x[idx_before_x0 + 1] - x0) * (y0 + y[idx_before_x0 + 1]) / 2
+    integral += (xf - x[idx_before_xf]) * (y[idx_before_xf] + yf) / 2
+
+    # Deal with edge case where both x0 and xf are in the same trapezoid
+    same_trapezoid = idx_before_x0 == idx_before_xf
+    integral[same_trapezoid] = ((xf - x0) * (y0 + yf) / 2)[same_trapezoid]
+
+    return integral
+
+
 @h5cached('/external/cache/', mode='array', transfer_to_tmp=False,
           file_format='static{animal_id}-{session}-{scan_idx}-preproc{preproc_id}.h5')
 @schema
-class InputResponse(dj.Computed, FilterMixin):
-    definition = """
-    # responses of one neuron to the stimulus
-
+class InputResponse(dj.Computed):
+    definition = """ # responses of each neuron to images (stimulus.Frame) in stimuli
     -> StaticScan
     -> Preprocessing
-    ---
     """
-
-    key_source = StaticScan() * Preprocessing() & Frame()
-
-    class Input(dj.Part):
-        definition = """
-            -> master
-            -> stimulus.Trial
-            -> Frame
-            ---
-            row_id           : int             # row id in the response block
-            """
+    @property
+    def key_source(self):
+        return StaticScan * Preprocessing & Frame
 
     class ResponseBlock(dj.Part):
         definition = """
-            -> master
-            ---
-            responses           : external-data   # response of one neurons for all bins
-            """
+        -> master
+        ---
+        responses       : external-data # response of one neurons for all bins
+        """
+
+    class Input(dj.Part):
+        definition = """
+        -> master
+        -> stimulus.Trial
+        -> Frame
+        ---
+        row_id          : int           # row id in the response block
+        """
 
     class ResponseKeys(dj.Part):
         definition = """
-            -> master.ResponseBlock
-            -> fuse.Activity.Trace
-            ---
-            col_id           : int             # col id in the response block
-            """
+        -> master.ResponseBlock
+        -> fuse.Activity.Trace
+        ---
+        col_id          : int           # col id in the response block
+        """
 
-    def load_traces_and_frametimes(self, key):
-        # -- find number of recording depths
-        pipe = (fuse.Activity() & key).fetch('pipe')
-        assert len(np.unique(pipe)) == 1, 'Selection is from different pipelines'
-        pipe = dj.create_virtual_module(pipe[0], 'pipeline_' + pipe[0])
-        k = dict(key)
-        k.pop('field', None)
-        ndepth = len(dj.U('z') & (pipe.ScanInfo.Field() & k))
-        frame_times = (stimulus.Sync() & key).fetch1('frame_times').squeeze()[::ndepth]
+    def make(self, key):
+        # Check new preprocessing
+        if key['preproc_id'] < 4:
+            raise ValueError('Deprecated preprocessing, use preproc_id > 4 or downgrade '
+                             'code to access previous preprocessings.')
 
-        soma = pipe.MaskClassification.Type() & dict(type='soma')
+        # Get all traces for this scan
+        log.info('Getting traces...')
+        traces, unit_ids, trace_times = get_traces(key)
 
-        spikes = (dj.U('field', 'channel') * pipe.Activity.Trace() * StaticScan.Unit() \
-                  * pipe.ScanSet.UnitInfo() & soma & key)
-        traces, ms_delay, trace_keys = spikes.fetch('trace', 'ms_delay', dj.key,
-                                                    order_by='animal_id, session, scan_idx, unit_id')
-        delay = np.fromiter(ms_delay / 1000, dtype=np.float)
-        frame_times = (delay[:, None] + frame_times[None, :])
-        traces = np.vstack([fill_nans(tr.astype(np.float32)).squeeze() for tr in traces])
-        traces, frame_times = self.adjust_trace_len(traces, frame_times)
-        return traces, frame_times, trace_keys
+        # Get trial times for frames in Scan.Frame (excluding bad trials)
+        log.info('Getting onset and offset times for each image...')
+        trials_rel = stimulus.Trial * Frame - ExcludedTrial & key
+        flip_times, trial_ids, cond_hashes = trials_rel.fetch('flip_times', 'trial_idx',
+                                                              'condition_hash',
+                                                              order_by='condition_hash',
+                                                              squeeze=True)
+        if any([len(ft) < 2 or len(ft) > 3 for ft in flip_times]):
+            raise ValueError('Only works for stimulus.Frames with 2 or 3 flips')
 
-    def adjust_trace_len(self, traces, frame_times):
-        trace_len, nframes = traces.shape[1], frame_times.shape[1]
-        if trace_len < nframes:
-            frame_times = frame_times[:, :trace_len]
-        elif trace_len > nframes:
-            traces = traces[:, :nframes]
-        return traces, frame_times
+        # Find start and duration of image frames
+        monitor_fps = 60
+        image_onset = np.stack([ft[1] for ft in flip_times]) + 1 / monitor_fps  # start of image
+        image_duration = float((Preprocessing & key).fetch1('duration'))  # np.stack([ft[2] for ft in flip_times]) - image_onset
+        """
+        Each trial is a stimulus.Frame.
+        A single stimulus.Frame is composed of a flip (1/60 secs), a blanking period (0.3 
+        - 0.5 secs), another flip, the image (0.5 secs) and another flip. During flips 
+        screen is gray (as during blanking).
+        """
 
-    def get_trace_spline(self, key, sampling_period):
-        traces, frame_times, trace_keys = self.load_traces_and_frametimes(key)
-        log.info('Loaded {} traces'.format(len(traces)))
+        # Add a shift to the onset times to account for the time it takes for the image to
+        # travel from the retina to V1
+        image_onset += float((Preprocessing & key).fetch1('offset'))
+        # Wiskott, L. How does our visual system achieve shift and size invariance?. Problems in Systems Neuroscience, 2003.
 
-        log.info('Generating lowpass filters to {}Hz'.format(1 / sampling_period))
-        h_trace = self.get_filter(sampling_period, np.median(np.diff(frame_times)), 'hamming',
-                                  warning=False)
-        # low pass filter
-        trace_spline = SplineCurve(frame_times,
-                                   [np.convolve(trace, h_trace, mode='same') for trace in traces], k=1, ext=1)
-        return trace_spline, trace_keys, frame_times.min(), frame_times.max()
+        # Sample responses (trace by trace) with a rectangular window
+        log.info('Sampling responses...')
+        image_resps = np.stack([trapezoid_integration(tt, t, image_onset, image_onset +
+                                                      image_duration) / image_duration for
+                                tt, t in zip(trace_times, traces)], axis=-1)
 
-    @staticmethod
-    def stimulus_onset(flip_times, duration):
-        n_ft = np.unique([ft.size for ft in flip_times])
-        assert len(n_ft) == 1, 'Found inconsistent number of fliptimes'
-        n_ft = int(n_ft)
-        log.info('Found {} flip times'.format(n_ft))
+        # Insert
+        log.info('Inserting...')
+        self.insert1(key)
+        self.ResponseBlock.insert1({**key, 'responses': image_resps.astype(np.float32)})
+        self.Input.insert([{**key, 'trial_idx': trial_idx, 'condition_hash': cond_hash,
+                            'row_id': i} for i, (trial_idx, cond_hash) in enumerate(zip(
+            trial_ids, cond_hashes))])
+        self.ResponseKeys.insert([{**key, 'unit_id': unit_id, 'col_id': i,
+                                   'field': (fuse.Activity.Trace & key &
+                                             {'unit_id': unit_id}).fetch1('field'),
+                                   'channel': (fuse.Activity.Trace & key &
+                                               {'unit_id': unit_id}).fetch1('channel')}
+                                  for i, unit_id in enumerate(unit_ids)])
 
-        assert n_ft in (2, 3), 'Cannot deal with {} flip times'.format(n_ft)
-
-        stimulus_onset = np.vstack(flip_times)  # columns correspond to  clear flip, onset flip
-        ft = stimulus_onset[np.argsort(stimulus_onset[:, 0])]
-        if n_ft == 2:
-            assert np.median(ft[1:, 0] - ft[:-1, 1]) < duration + 0.05, 'stimulus duration off by more than 50ms'
-        else:
-            assert np.median(ft[:, 2] - ft[:, 1]) < duration + 0.05, 'stimulus duration off by more than 50ms'
-        stimulus_onset = stimulus_onset[:, 1]
-
-        return stimulus_onset
-
-    def make(self, scan_key):
-        self.insert1(scan_key)
-        # integration window size for responses
-        duration, offset = map(float, (Preprocessing() & scan_key).fetch1('duration', 'offset'))
-        sample_point = offset + duration / 2
-
-        log.info('Sampling neural responses at {}s intervals'.format(duration))
-
-        trace_spline, trace_keys, ftmin, ftmax = self.get_trace_spline(scan_key, duration)
-        # exclude trials marked in ExcludedTrial
-        log.info('Excluding {} trials based on ExcludedTrial'.format(len(ExcludedTrial() & scan_key)))
-        flip_times, trial_keys = (Frame * (stimulus.Trial - ExcludedTrial) & scan_key).fetch('flip_times', dj.key,
-                                                                           order_by='condition_hash')
-        flip_times = [ft.squeeze() for ft in flip_times]
-
-        # If no Frames are present, skip this scan
-        if len(flip_times) == 0:
-            log.warning('No static frames were present to be processed for {}'.format(scan_key))
-            return
-
-        valid = np.array([ft.min() >= ftmin and ft.max() <= ftmax for ft in flip_times], dtype=bool)
-        if not np.all(valid):
-            log.warning('Dropping {} trials with dropped frames or flips outside the recording interval'.format(
-                (~valid).sum()))
-
-        stimulus_onset = self.stimulus_onset(flip_times, duration)
-        log.info('Sampling {} responses {}s after stimulus onset'.format(valid.sum(), sample_point))
-        R = trace_spline(stimulus_onset[valid] + sample_point, log=True).T
-
-        self.ResponseBlock.insert1(dict(scan_key, responses=R))
-        self.ResponseKeys.insert([dict(scan_key, **trace_key, col_id=i) for i, trace_key in enumerate(trace_keys)])
-        self.Input.insert([dict(scan_key, **trial_key, row_id=i)
-                           for i, trial_key in enumerate(compress(trial_keys, valid))])
 
     def compute_data(self, key):
         key = dict((self & key).fetch1(dj.key), **key)
