@@ -463,6 +463,29 @@ def trapezoid_integration(x, y, x0, xf):
 
     return integral
 
+def get_image_onset(flip_times, monitor_fps=60):
+    """ Gets time in stimulus clock where the image for this trial was shown.
+
+    Assumes the trial was a stimulus.Frame condition. A single stimulus.Frame is composed
+    of a flip (1/60 secs), a blanking period (0.3 - 0.5 secs), another flip, the image
+    (0.5 secs) and another flip. During flips (as during blanking) screen is gray. Times
+    in flip_times is the start of each of those flips.
+
+    Arguments:
+        flip_times (list/np.array): flip times for a single trial (as fetched from
+            stimulus.Trial). Should have length 2 or 3.
+
+    Returns:
+        A float. Time the image in this trial was shown in the screen.
+    """
+    if len(flip_times) < 2 or len(flip_times) > 3:
+            raise ValueError('Only works for stimulus.Frame trials with 2 or 3 flips.')
+
+    onset = flip_times[1] + 1 / monitor_fps
+    # ft[1] is onset of second flip, 1/monitor_fps is the time it takes for the flip to finish
+    return onset
+
+
 
 @h5cached('/external/cache/', mode='array', transfer_to_tmp=False,
           file_format='static{animal_id}-{session}-{scan_idx}-preproc{preproc_id}.h5')
@@ -517,12 +540,9 @@ class InputResponse(dj.Computed):
                                                               'condition_hash',
                                                               order_by='condition_hash',
                                                               squeeze=True)
-        if any([len(ft) < 2 or len(ft) > 3 for ft in flip_times]):
-            raise ValueError('Only works for stimulus.Frames with 2 or 3 flips')
 
         # Find start and duration of image frames
-        monitor_fps = 60
-        image_onset = np.stack([ft[1] for ft in flip_times]) + 1 / monitor_fps  # start of image
+        image_onset = np.stack([get_image_onset(ft) for ft in flip_times]) # start of image
         image_duration = float((Preprocessing & key).fetch1('duration'))  # np.stack([ft[2] for ft in flip_times]) - image_onset
         """
         Each trial is a stimulus.Frame.
@@ -835,7 +855,7 @@ class Eye(dj.Computed, FilterMixin, BehaviorMixin):
             log.warning('No static frames were present to be processed for {}'.format(scan_key))
             return
 
-        stimulus_onset = InputResponse.stimulus_onset(flip_times, duration)
+        stimulus_onset = np.stack([get_image_onset(ft) for ft in flip_times]) # start of image
         t = fr2beh(stimulus_onset + sample_point)
         pupil = pupil_spline(t)
         dpupil = dpupil_spline(t)
@@ -899,7 +919,7 @@ class Treadmill(dj.Computed, FilterMixin, BehaviorMixin):
             log.warning('No static frames were present to be processed for {}'.format(scan_key))
             return
 
-        stimulus_onset = InputResponse.stimulus_onset(flip_times, duration)
+        stimulus_onset = np.stack([get_image_onset(ft) for ft in flip_times]) # start of image
         tm = treadmill_spline(fr2beh(stimulus_onset + sample_point))
         valid = ~np.isnan(tm)
         if not np.all(valid):
