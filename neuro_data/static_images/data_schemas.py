@@ -33,7 +33,7 @@ UNIQUE_FRAME = {
     'stimulus.ColorFrameProjector': ('image_id', 'image_class'),
 }
 
-IMAGE_CLASSES = 'image_class in ("imagenet", "imagenet_v2_gray", "imagenet_v2_rgb")' # all valid natural image classes
+IMAGE_CLASSES = 'image_class in ("imagenet", "imagenet_v2_gray", "imagenet_v2_rgb", "imagenet_v2_rgb_g_b_channels_separately_joined")' # all valid natural image classes
 
 @schema
 class StaticScanCandidate(dj.Manual):
@@ -141,7 +141,7 @@ class ImageNetSplit(dj.Lookup):
             print('Static images were not shown for this scan')
 
         # Get all image ids in this scan
-        all_frames = frame_table * stimulus.Trial & scan_key & IMAGE_CLASSES
+        all_frames = frame_table * stimulus.Trial & scan_key
         unique_frames = dj.U('image_id', 'image_class').aggr(all_frames, repeats='COUNT(*)')
         image_ids, image_classes = unique_frames.fetch('image_id', 'image_class', order_by='repeats DESC')
         num_frames = len(image_ids)
@@ -165,10 +165,10 @@ class ImageNetSplit(dj.Lookup):
                     skip_duplicates=True)
         self.insert([{'image_id': iid, 'image_class': ic, 'tier': 'validation'} for
                      iid, ic in zip(image_ids[num_oracles: num_oracles + num_validation],
-                                    image_classes[num_oracles: num_oracles + num_validation])])
+                                    image_classes[num_oracles: num_oracles + num_validation])], skip_duplicates=True)
         self.insert([{'image_id': iid, 'image_class': ic, 'tier': 'train'} for iid, ic in
                      zip(image_ids[num_oracles + num_validation:],
-                         image_classes[num_oracles + num_validation:])])
+                         image_classes[num_oracles + num_validation:])], skip_duplicates=True)
 
 
 @schema
@@ -245,7 +245,7 @@ class ConditionTier(dj.Computed):
 
                 # deal with ImageNet frames first
                 log.info('Inserting assignment from ImageNetSplit')
-                targets = StaticScan * frame_table * ImageNetSplit & (stimulus.Trial & key) & IMAGE_CLASSES
+                targets = StaticScan * frame_table * ImageNetSplit & (stimulus.Trial & key)
                 print('Inserting {} imagenet conditions!'.format(len(targets)))
                 self.insert(targets, ignore_extra_fields=True)
 
@@ -590,7 +590,7 @@ class InputResponse(dj.Computed, FilterMixin):
         on = ['animal_id', 'condition_hash', 'scan_idx', 'session', 'trial_idx']
         for t, df in dfs.items():
             mapping = {c:(t.lower() + '_' + c) for c in set(df.columns) - set(on)}
-            dfs[t] = df.rename(str, mapping)
+            dfs[t] = df.rename(mapping)
         df = list(dfs.values())[0]
         for d in list(dfs.values())[1:]:
             df = df.merge(d, how='outer', on=on)
