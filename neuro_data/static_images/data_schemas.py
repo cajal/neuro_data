@@ -302,7 +302,7 @@ class Preprocessing(dj.Lookup):
         {'preproc_id': 3, 'offset': 0.05, 'duration': 0.5, 'row': 36, 'col': 64,
          'filter': 'hamming', 'gamma': True},
         {'preproc_id': 4, 'offset': 0.03, 'duration': 0.5, 'row': 36, 'col': 64,
-         'filter': 'hamming', 'gamma': True},
+         'filter': 'hamming', 'gamma': False},
     ]
 
 
@@ -544,12 +544,6 @@ class InputResponse(dj.Computed):
         # Find start and duration of image frames
         image_onset = np.stack([get_image_onset(ft) for ft in flip_times]) # start of image
         image_duration = float((Preprocessing & key).fetch1('duration'))  # np.stack([ft[2] for ft in flip_times]) - image_onset
-        """
-        Each trial is a stimulus.Frame.
-        A single stimulus.Frame is composed of a flip (1/60 secs), a blanking period (0.3 
-        - 0.5 secs), another flip, the image (0.5 secs) and another flip. During flips 
-        screen is gray (as during blanking).
-        """
 
         # Add a shift to the onset times to account for the time it takes for the image to
         # travel from the retina to V1
