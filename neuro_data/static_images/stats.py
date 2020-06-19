@@ -35,7 +35,8 @@ class Oracle(dj.Computed):
         -> master
         -> StaticMultiDataset.Member
         ---
-        pearson           : float     # mean test correlation
+        pearson           : float     # mean pearson correlation
+        spearman          : float     # mean spearnab correlation
         """
 
     class UnitScores(dj.Part):
@@ -43,7 +44,8 @@ class Oracle(dj.Computed):
         -> master.Scores
         -> StaticScan.Unit
         ---
-        pearson           : float     # mean test correlation
+        pearson           : float     # unit pearson correlation
+        spearman          : float     # unit spearman correlation
         """
 
     def make(self, key):
@@ -69,18 +71,29 @@ class Oracle(dj.Computed):
             if len(data) == 0:
                 log.error('Found no oracle trials! Skipping ...')
                 return
+
+            # Pearson correlation
             pearson = corr(np.vstack(data), np.vstack(oracles), axis=0)
+
+            # Spearman correlation
+            data_rank = np.empty(np.vstack(data).shape)
+            oracles_rank = np.empty(np.vstack(oracles).shape)
+
+            for i in range(np.vstack(data).shape[1]):
+                data_rank[:, i] = np.argsort(np.argsort(np.vstack(data)[:, i]))
+                oracles_rank[:, i] = np.argsort(np.argsort(np.vstack(oracles)[:, i]))
+            spearman = corr(data_rank, oracles_rank, axis=0)
 
             member_key = (StaticMultiDataset.Member() & key &
                           dict(name=readout_key)).fetch1(dj.key)
             member_key = dict(member_key, **key)
-            self.Scores().insert1(dict(member_key, pearson=np.mean(pearson)), ignore_extra_fields=True)
+            self.Scores().insert1(dict(member_key, pearson=np.mean(pearson), spearman=np.mean(spearman)), ignore_extra_fields=True)
             unit_ids = testsets[readout_key].neurons.unit_ids
             assert len(unit_ids) == len(
-                pearson) == outputs.shape[-1], 'Neuron numbers do not add up'
+                pearson) == len(spearman) == outputs.shape[-1], 'Neuron numbers do not add up'
             self.UnitScores().insert(
-                [dict(member_key, pearson=c, unit_id=u)
-                 for u, c in tqdm(zip(unit_ids, pearson), total=len(unit_ids))],
+                [dict(member_key, pearson=c, spearman=s, unit_id=u)
+                 for u, c, s in tqdm(zip(unit_ids, pearson, spearman), total=len(unit_ids))],
                 ignore_extra_fields=True)
 
 
