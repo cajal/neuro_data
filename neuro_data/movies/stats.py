@@ -21,7 +21,7 @@ from tqdm import tqdm
 from scipy import stats
 from scipy.signal import convolve2d
 from ..utils.data import SplineMovie, FilterMixin, SplineCurve, h5cached, NaNSpline, fill_nans
-from .data_schemas import MovieMultiDataset, MovieScan
+from .data_schemas import InputResponse, MovieMultiDataset, MovieScan, MovieSet
 from .configs import DataConfig
 
 schema = dj.schema('neurodata_moviestats', locals())
@@ -154,6 +154,54 @@ class Oracle(dj.Computed):
                 [dict(member_key, pearson=c, unit_id=u)
                  for u, c in tqdm(zip(unit_ids, pearson), total=len(unit_ids))],
                 ignore_extra_fields=True)
+
+
+@schema
+class ScanOracle(dj.Computed):
+    definition = """
+    # oracle computation for each scan
+    -> InputResponse
+    ---
+    n_neurons           : int       # number of neurons in scan
+    pearson             : float     # mean test correlation
+    """
+
+    class Unit(dj.Part):
+        definition = """
+        -> master
+        -> MovieScan.Unit
+        ---
+        pearson             : float     # mean test correlation
+        """
+
+    def make(self, key):
+        fname = InputResponse().get_filename(key)
+        dset = MovieSet(fname, 'inputs', 'responses')
+        test_index = np.where(dset.tiers == 'test')[0]
+        condition_hashes = dset.condition_hashes
+        hashes, counts = np.unique(condition_hashes, return_counts=True)
+        repeat_hashes = hashes[counts > 2]
+
+        oracles, data = [], []
+        for cond_hash in repeat_hashes:
+            repeat_index = np.where(condition_hashes == cond_hash)[0]
+            index = np.intersect1d(repeat_index, test_index).tolist()
+            if len(index) < 3:
+                continue
+            inputs = np.stack([dset.inputs[str(i)][()] for i in index], axis=0)
+            outputs = np.stack([dset.responses[str(i)][()] for i in index], axis=0)
+            assert (np.diff(inputs, axis=0) == 0).all(), 'Video inputs of oracle trials do not match'
+            new_shape = (-1, outputs.shape[-1])
+            r = outputs.shape[0]
+            mu = outputs.mean(axis=0, keepdims=True)
+            oracle = (mu * r - outputs) / (r - 1)
+            oracles.append(oracle.reshape(new_shape))
+            data.append(outputs.reshape(new_shape))
+        pearsons = corr(np.vstack(data), np.vstack(oracles), axis=0)
+        unit_ids = dset._fid['neurons']['unit_ids'][()]
+
+        self.insert1(dict(key, n_neurons=len(pearsons), pearson=np.mean(pearsons)))
+        self.Unit.insert([dict(key, unit_id=u, pearson=p) for u, p in zip(unit_ids, pearsons)])
 
 
 def load_dataset(key):
@@ -412,7 +460,7 @@ class BootstrapOracleTTest(dj.Computed):
 
     def make(self, key):
         num_seeds = len(BootstrapOracleSeed())
-        
+
         dset = load_dataset(key)
         unit_ids = dset.neurons.unit_ids
         unit_scores = pd.DataFrame((BootstrapOracle.UnitScore & key).fetch())
@@ -426,13 +474,13 @@ class BootstrapOracleTTest(dj.Computed):
 
         # Computing unit scores
         scores_true = unit_scores.pivot(
-                index='unit_id', columns='oracle_bootstrap_seed',
-                values='boostrap_unit_score_true')
+            index='unit_id', columns='oracle_bootstrap_seed',
+            values='boostrap_unit_score_true')
         scores_null = unit_scores.pivot(
             index='unit_id', columns='oracle_bootstrap_seed',
             values='boostrap_unit_score_null')
         _, unit_p_values = stats.ttest_ind(
-            scores_true.values, scores_null.values, 
+            scores_true.values, scores_null.values,
             axis=1, equal_var=False)
         assert np.array_equal(scores_true.index.values, scores_null.index.values)
         assert np.array_equal(scores_true.index.values, unit_ids)
