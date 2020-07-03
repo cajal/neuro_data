@@ -590,7 +590,7 @@ class InputResponse(dj.Computed, FilterMixin):
         on = ['animal_id', 'condition_hash', 'scan_idx', 'session', 'trial_idx']
         for t, df in dfs.items():
             mapping = {c:(t.lower() + '_' + c) for c in set(df.columns) - set(on)}
-            dfs[t] = df.rename(str, mapping)
+            dfs[t] = df.rename(index=str, columns=mapping)
         df = list(dfs.values())[0]
         for d in list(dfs.values())[1:]:
             df = df.merge(d, how='outer', on=on)
