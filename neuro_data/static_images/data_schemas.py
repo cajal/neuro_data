@@ -1056,7 +1056,7 @@ class StaticMultiDataset(dj.Manual):
             pipe = (fuse.ScanDone() & mkey).fetch1('pipe')
             pipe = dj.create_virtual_module(pipe, 'pipeline_' + pipe)
             include_behavior = bool(Eye().proj() * Treadmill().proj() & mkey)
-            include_nm = bool(pipe.FieldAnnotation & key)  # TODO change pipe.FieldAnnotation to a proper table dedicated for neuromodulator imaging
+            include_nm = bool(pipe.FieldAnnotation & mkey)  # TODO change pipe.FieldAnnotation to a proper table dedicated for neuromodulator imaging
             if include_behavior and include_nm:
                 data_names = [
                     'images',
