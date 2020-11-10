@@ -33,12 +33,12 @@ class Normalizer(DataTransform, Invertible):
         self.normalize_per_image = normalize_per_image
         self.stats_source = stats_source
 
-        self._inputs_mean = data.statistics['images/{}/mean'.format(stats_source)].value
+        self._inputs_mean = data.statistics['images/{}/mean'.format(stats_source)][()]
         if self.buggy:
             # Buggy implementation for backward compatibility
-            self._inputs_std = data.statistics['images/{}/mean'.format(stats_source)].value
+            self._inputs_std = data.statistics['images/{}/mean'.format(stats_source)][()]
         else:
-            self._inputs_std = data.statistics['images/{}/std'.format(stats_source)].value
+            self._inputs_std = data.statistics['images/{}/std'.format(stats_source)][()]
 
         s = np.array(data.statistics['responses/{}/std'.format(stats_source)])
 
