@@ -35,6 +35,16 @@ UNIQUE_FRAME = {
 
 IMAGE_CLASSES = 'image_class in ("imagenet", "imagenet_v2_gray", "imagenet_v2_rgb")' # all valid natural image classes
 
+# tuple of neural activity indicator and neuromodulator indicator
+NEURAL = (
+    "pGP-AAV-syn-jGCaMP7s-WPRE",
+)
+NM = (
+    "AAV-hSyn-ACh4.3",
+)
+
+construct_query = lambda x : f'construct_label = "{x[0]}"' if len(x) == 1 else f'construct_label in x'
+
 @schema
 class StaticScanCandidate(dj.Manual):
     definition = """ # list of scans to process
@@ -297,7 +307,7 @@ class Preprocessing(dj.Lookup):
         {'preproc_id': 0, 'offset': 0.05, 'duration': 0.5, 'row': 36, 'col': 64,
          'filter': 'hamming', 'gamma': False},  # this one was still processed with cropping
         {'preproc_id': 1, 'offset': 0.05, 'duration': 0.5, 'row': 36, 'col': 64,
-         'filter': 'hamming', 'gamma': False},
+         'filter': 'hamming', 'gamma': False},  # this set of parameter is used only as a place holder for manually injected datasets
         {'preproc_id': 2, 'offset': 0.05, 'duration': 0.5, 'row': 72, 'col': 128,
          'filter': 'hamming', 'gamma': False},
         {'preproc_id': 3, 'offset': 0.05, 'duration': 0.5, 'row': 36, 'col': 64,
@@ -545,6 +555,7 @@ class InputResponse(dj.Computed, FilterMixin):
 
         # get data relation
         include_behavior = bool(Eye.proj() * Treadmill.proj() & key)
+        include_nm = bool(pipe.FieldAnnotation & key)  # TODO change pipe.FieldAnnotation to a proper table dedicated for neuromodulator imaging
 
         assert include_behavior, 'Behavior data is missing!'
 
@@ -609,6 +620,10 @@ class InputResponse(dj.Computed, FilterMixin):
             else:
                 row_info[k] = np.array(extra_info[k])
 
+        # extract neuralmodulator
+        if include_nm:
+            nm = Neuromodulator().make(key)
+
         # extract behavior
         if include_behavior:
             pupil, dpupil, pupil_center, valid_eye = (Eye & key).fetch1('pupil', 'dpupil', 'center', 'valid')
@@ -627,6 +642,7 @@ class InputResponse(dj.Computed, FilterMixin):
                 dpupil = dpupil[valid]
                 pupil_center = pupil_center[valid]
                 treadmill = treadmill[valid]
+                nm = nm[valid]
                 for k in row_info:
                     row_info[k] = row_info[k][valid]
             behavior = np.c_[pupil, dpupil, treadmill]
@@ -696,6 +712,12 @@ class InputResponse(dj.Computed, FilterMixin):
             statistics['behavior'] = behavior_statistics
             statistics['pupil_center'] = eye_statistics
 
+        if include_nm:
+            # ---- include statistics
+            nm_statistics = run_stats(lambda ix: nm[ix], types, tiers == 'train', axis=0)
+
+            statistics['neuromodulator'] = nm_statistics
+
         retval = dict(images=images,
                       responses=responses,
                       types=types.astype('S'),
@@ -709,9 +731,101 @@ class InputResponse(dj.Computed, FilterMixin):
         if include_behavior:
             retval['behavior'] = behavior
             retval['pupil_center'] = pupil_center
+
+        if include_nm:
+            retval['neuromodulator'] = nm
             
         return retval
 
+class Neuromodulator(FilterMixin):  # left as a class instead of a table for now TODO modify this into a table when the neuromodulator pipeline is ready
+    def load_traces_and_frametimes(self, key):
+        # -- find number of recording depths
+        pipe = (fuse.Activity() & key).fetch('pipe')
+        assert len(np.unique(pipe)) == 1, 'Selection is from different pipelines'
+        pipe = dj.create_virtual_module(pipe[0], 'pipeline_' + pipe[0])
+        k = dict(key)
+        k.pop('field', None)
+        ndepth = len(dj.U('z') & (pipe.ScanInfo.Field() & k))
+        frame_times = (stimulus.Sync() & key).fetch1('frame_times').squeeze()[::ndepth]
+
+        traces = (meso.Quality.MeanIntensity * meso.FieldAnnotation & key & construct_query(NM)).fetch('intensities')
+        traces = np.stack(traces).mean(axis=0)  # average the neural modulator signal across depth
+        traces = fill_nans(traces.astype(np.float32)).squeeze()
+        traces, frame_times = self.adjust_trace_len(traces[None, :], frame_times[None, :])
+        # return with two dimensions, the first dimention could be used for multi-channel neural modulator information for the future
+        return traces, frame_times
+    
+    def adjust_trace_len(self, traces, frame_times):
+        trace_len, nframes = traces.shape[1], frame_times.shape[1]
+        if trace_len < nframes:
+            frame_times = frame_times[:, :trace_len]
+        elif trace_len > nframes:
+            traces = traces[:, :nframes]
+        return traces, frame_times
+
+    def get_trace_spline(self, key, sampling_period):
+        traces, frame_times = self.load_traces_and_frametimes(key)
+        log.info('Loaded {} traces'.format(len(traces)))
+
+        log.info('Generating lowpass filters to {}Hz'.format(1 / sampling_period))
+        h_trace = self.get_filter(sampling_period, np.median(np.diff(frame_times)), 'hamming',
+                                  warning=False)
+        # low pass filter
+        trace_spline = SplineCurve(frame_times,
+                                   [np.convolve(trace, h_trace, mode='same') for trace in traces], k=1, ext=1)
+        return trace_spline, frame_times.min(), frame_times.max()
+
+    @staticmethod
+    def stimulus_onset(flip_times, duration):
+        n_ft = np.unique([ft.size for ft in flip_times])
+        assert len(n_ft) == 1, 'Found inconsistent number of fliptimes'
+        n_ft = int(n_ft)
+        log.info('Found {} flip times'.format(n_ft))
+
+        assert n_ft in (2, 3), 'Cannot deal with {} flip times'.format(n_ft)
+
+        stimulus_onset = np.vstack(flip_times)  # columns correspond to  clear flip, onset flip
+        ft = stimulus_onset[np.argsort(stimulus_onset[:, 0])]
+        if n_ft == 2:
+            assert np.median(ft[1:, 0] - ft[:-1, 1]) < duration + 0.05, 'stimulus duration off by more than 50ms'
+        else:
+            assert np.median(ft[:, 2] - ft[:, 1]) < duration + 0.05, 'stimulus duration off by more than 50ms'
+        stimulus_onset = stimulus_onset[:, 1]
+
+        return stimulus_onset
+    
+    def make(self, scan_key):
+        # integration window size for responses
+        duration, offset = map(float, (Preprocessing() & scan_key).fetch1('duration', 'offset'))
+        duration = 0.5
+        offset = 0.05
+        sample_point = offset + duration / 2
+
+        log.info('Sampling neural responses at {}s intervals'.format(duration))
+
+        trace_spline, ftmin, ftmax = self.get_trace_spline(scan_key, duration)
+        # exclude trials marked in ExcludedTrial
+        log.info('Excluding {} trials based on ExcludedTrial'.format(len(ExcludedTrial() & scan_key)))
+        flip_times, trial_keys = (Frame * (stimulus.Trial - ExcludedTrial) & scan_key).fetch('flip_times', dj.key,
+                                                                           order_by='condition_hash')
+        flip_times = [ft.squeeze() for ft in flip_times]
+
+        # If no Frames are present, skip this scan
+        if len(flip_times) == 0:
+            log.warning('No static frames were present to be processed for {}'.format(scan_key))
+            return
+
+        valid = np.array([ft.min() >= ftmin and ft.max() <= ftmax for ft in flip_times], dtype=bool)
+        if not np.all(valid):
+            log.warning('Dropping {} trials with dropped frames or flips outside the recording interval'.format(
+                (~valid).sum()))
+
+        stimulus_onset = self.stimulus_onset(flip_times, duration)
+        log.info('Sampling {} responses {}s after stimulus onset'.format(valid.sum(), sample_point))
+        R = trace_spline(stimulus_onset[valid] + sample_point, log=True).T
+        R = (R - R.min()) / (R.max() - R.min())
+        
+        return R
 
 class BehaviorMixin:
     def load_frame_times(self, key):
@@ -939,12 +1053,27 @@ class StaticMultiDataset(dj.Manual):
         for mkey in (self.Member() & key).fetch(dj.key,
                                                 order_by='animal_id ASC, session ASC, scan_idx ASC, preproc_id ASC'):
             name = (self.Member() & mkey).fetch1('name')
+            pipe = (fuse.ScanDone() & mkey).fetch1('pipe')
+            pipe = dj.create_virtual_module(pipe, 'pipeline_' + pipe)
             include_behavior = bool(Eye().proj() * Treadmill().proj() & mkey)
-            data_names = ['images', 'responses'] if not include_behavior \
-                else ['images',
-                      'behavior',
-                      'pupil_center',
-                      'responses']
+            include_nm = bool(pipe.FieldAnnotation & mkey)  # TODO change pipe.FieldAnnotation to a proper table dedicated for neuromodulator imaging
+            if include_behavior and include_nm:
+                data_names = [
+                    'images',
+                    'behavior',
+                    'neuromodulator',
+                    'pupil_center',
+                    'responses'
+                ]
+            elif include_behavior:
+                data_names = [
+                    'images',
+                    'behavior',
+                    'pupil_center',
+                    'responses'
+                ]
+            else:
+                data_names = ['images', 'responses']
             log.info('Data will be ({})'.format(','.join(data_names)))
 
             h5filename = InputResponse().get_filename(mkey)

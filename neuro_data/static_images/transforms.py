@@ -79,6 +79,18 @@ class Normalizer(DataTransform, Invertible):
             # -- behavior
             transforms['behavior'] = lambda x: x * self._behavior_precision
             itransforms['behavior'] = lambda x: x / self._behavior_precision
+        
+        if 'neuromodulator' in data.data_keys:
+            s = np.array(data.statistics['neuromodulator/{}/std'.format(stats_source)])
+            mu = np.array(data.statistics['neuromodulator/{}/mean'.format(stats_source)])
+            idx = s > 0.01 * s.mean()
+            self._neuromodulator_precision = np.ones_like(s)
+            self._neuromodulator_precision[idx] = 1 / s[idx]
+
+            # -- neuromodulator
+            transforms['neuromodulator'] = lambda x: x * self._neuromodulator_precision
+            transforms['neuromodulator'] = lambda x: x / self._neuromodulator_precision
+
 
         self._transforms = transforms
         self._itransforms = itransforms
