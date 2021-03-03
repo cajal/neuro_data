@@ -463,7 +463,7 @@ class DataConfig(ConfigBase, dj.Lookup):
                              [True],
                              [True, False],
                              ['L4', 'L2/3'],
-                             ['all-unknown']):
+                             ['all-unknown', 'all']):
                 yield dict(zip(self.heading.dependent_attributes, p))
 
     ############ Below are data configs that were using the buggy normalizer #################
