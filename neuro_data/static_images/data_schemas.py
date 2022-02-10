@@ -11,7 +11,12 @@ from neuro_data import logger as log
 from neuro_data.utils.data import h5cached, SplineCurve, FilterMixin, fill_nans, NaNSpline
 from neuro_data.static_images import datasets
 
-dj.config['external-data'] = {'protocol': 'file', 'location': '/external/'}
+dj.config.setdefault('stores', dict())
+dj.config['stores'].update({
+    'data': dict(
+        protocol='file', 
+        location='/external')
+})
 
 experiment = dj.create_virtual_module('experiment', 'pipeline_experiment')
 reso = dj.create_virtual_module('reso', 'pipeline_reso')
@@ -325,7 +330,7 @@ class Frame(dj.Computed):
     -> stimulus.Condition
     -> Preprocessing
     ---
-    frame                : external-data   # frame processed
+    frame                : blob@data   # frame processed
     """
 
     @property
@@ -429,7 +434,7 @@ class InputResponse(dj.Computed, FilterMixin):
         definition = """
             -> master
             ---
-            responses           : external-data   # response of one neurons for all bins
+            responses           : blob@data   # response of one neurons for all bins
             """
 
     class ResponseKeys(dj.Part):
@@ -764,10 +769,10 @@ class Eye(dj.Computed, FilterMixin, BehaviorMixin):
     -> InputResponse
     ---
     -> pupil.FittedPupil                 # tracking_method as a secondary attribute
-    pupil              : external-data   # pupil dilation trace
-    dpupil             : external-data   # derivative of pupil dilation trace
-    center             : external-data   # center position of the eye
-    valid              : external-data   # valid trials
+    pupil              : blob@data   # pupil dilation trace
+    dpupil             : blob@data   # derivative of pupil dilation trace
+    center             : blob@data   # center position of the eye
+    valid              : blob@data   # valid trials
     """
 
     @property
@@ -839,8 +844,8 @@ class Treadmill(dj.Computed, FilterMixin, BehaviorMixin):
     -> InputResponse
     -> treadmill.Treadmill
     ---
-    treadmill          : external-data   # treadmill speed (|velcolity|)
-    valid              : external-data   # valid trials
+    treadmill          : blob@data   # treadmill speed (|velcolity|)
+    valid              : blob@data   # valid trials
     """
 
     @property
