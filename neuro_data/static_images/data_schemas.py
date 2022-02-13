@@ -11,12 +11,12 @@ from neuro_data import logger as log
 from neuro_data.utils.data import h5cached, SplineCurve, FilterMixin, fill_nans, NaNSpline
 from neuro_data.static_images import datasets
 
-dj.config.setdefault('stores', dict())
-dj.config['stores'].update({
-    'data': dict(
+dj.config['stores'] = dict(
+  **dj.config.setdefault('stores', {}),
+  data=dict(
         protocol='file', 
-        location='/external')
-})
+        location='/external'),
+)
 
 experiment = dj.create_virtual_module('experiment', 'pipeline_experiment')
 reso = dj.create_virtual_module('reso', 'pipeline_reso')
