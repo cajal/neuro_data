@@ -16,7 +16,9 @@ dv_nn6_model = dj.create_virtual_module("dv_nn6_model", "dv_nns_v6_model")
 dv_nn6_scan = dj.create_virtual_module("dv_nn6_scan", "dv_nns_v6_scan")
 dv_nn6_pipe = dj.create_virtual_module("dv_nn6_pipe", "dv_nns_v6_ds_pipe")
 
-schema = dj.schema("zhuokun_neurodata_static")
+# schema = dj.schema("zhuokun_neurodata_static")
+
+schema = dj.schema("ewang_ds_pipe", context=locals())
 
 from utils.datajoint import config
 
@@ -93,7 +95,7 @@ class DvInfo(dj.Computed):
     def key_source(self):
         keys = (experiment.Scan * DvConfig).proj(dynamic_session="session", dynamic_scan_idx="scan_idx")
         key = [
-            dv_nn6_models() * DvConfig.Nn6,
+            dv_nn6_models() * DvConfig.Nn6 & dv_nn6_pipe.Response,
         ]
         return keys & key
 
