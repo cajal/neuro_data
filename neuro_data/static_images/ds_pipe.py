@@ -4,18 +4,128 @@ from .data_schemas import Frame, StaticScan, Preprocessing, InputResponse, Condi
 from . import ds_pipe_requests
 import pandas as pd
 
+experiment = dj.create_virtual_module("experiment", "pipeline_experiment")
 fuse = dj.create_virtual_module("fuse", "pipeline_fuse")
 meso = dj.create_virtual_module("meso", "pipeline_meso")
 shared = dj.create_virtual_module("shared", "pipeline_shared")
 anatomy = dj.create_virtual_module("anatomy", "pipeline_anatomy")
 
-schema = dj.schema("zhuokun_neurodata_static")
+dv_nn6_architecture = dj.create_virtual_module("dv_nn6_architecture", "dv_nns_v6_architecture")
+dv_nn6_train = dj.create_virtual_module("dv_nn6_train", "dv_nns_v6_train")
+dv_nn6_model = dj.create_virtual_module("dv_nn6_model", "dv_nns_v6_model")
+dv_nn6_scan = dj.create_virtual_module("dv_nn6_scan", "dv_nns_v6_scan")
+dv_nn6_pipe = dj.create_virtual_module("dv_nn6_pipe", "dv_nns_v6_ds_pipe")
+
+# schema = dj.schema("zhuokun_neurodata_static")
+
+schema = dj.schema("ewang_ds_pipe", context=locals())
+
+from utils.datajoint import config
+
+def dv_nn6_models():
+    keys = dv_nn6_model.ModelConfig.Scan1 * dv_nn6_scan.ScanModel * dv_nn6_scan.ModelScans & "n_scans=1"
+    keys = dj.U("architecture_hash", "train_hash") * keys
+    return keys.proj(dynamic_session="session", dynamic_scan_idx="scan_idx")
+
+
+@config(schema)
+class DvConfig(dj.Lookup):
+    class Nn6(dj.Part):
+        definition = """
+        -> master
+        ---
+        -> dv_nn6_scan.ScanConfig
+        -> dv_nn6_architecture.ArchitectureConfig
+        -> dv_nn6_train.TrainConfig
+        -> dv_nn6_model.Instance
+        -> dv_nn6_model.OutputConfig
+        -> dv_nn6_pipe.ResponseConfig
+        """
+
+        @property
+        def content(self):
+            return dj.U(*self.heading.secondary_attributes) & (dv_nn6_models() * dv_nn6_pipe.Response)
+
+        def unit_keys(self, animal_id, dynamic_session, dynamic_scan_idx):
+            scan_key = dict(
+                animal_id=animal_id,
+                session=dynamic_session,
+                scan_idx=dynamic_scan_idx,
+            )
+            scan_key, n_units = (dv_nn6_scan.Scan & scan_key & self).fetch1(dj.key, "n_units")
+            units = (self * dv_nn6_scan.Scan.Unit & scan_key).proj(
+                ..., dynamic_session="session", dynamic_scan_idx="scan_idx", dynamic_unit_id="unit_id"
+            )
+            unit_keys = units.fetch(*DvInfo.Unit.primary_key, as_dict=True, order_by="nn_response_index")
+
+            assert len(unit_keys) == n_units
+
+            return unit_keys
+
+        def response(self, animal_id, dynamic_session, dynamic_scan_idx, image_class, image_id):
+            response_key = dict(
+                animal_id=animal_id,
+                session=dynamic_session,
+                scan_idx=dynamic_scan_idx,
+                image_class=image_class,
+                image_id=image_id,
+            )
+            response = dv_nn6_models() * dv_nn6_pipe.Response & self & response_key
+            return response.fetch1("response")
+
+
+@schema
+class DvInfo(dj.Computed):
+    definition = """
+    -> experiment.Scan.proj(dynamic_session="session", dynamic_scan_idx="scan_idx")
+    -> DvConfig
+    ---
+    n_units         : int unsigned      # number of units
+    """
+
+    class Unit(dj.Part):
+        definition = """
+        -> master
+        -> fuse.ScanSet.Unit.proj(dynamic_session="session", dynamic_scan_idx="scan_idx", dynamic_unit_id="unit_id")
+        ---
+        response_index      : int unsigned      # index of unit in response vector
+        """
+
+    @property
+    def key_source(self):
+        keys = (experiment.Scan * DvConfig).proj(dynamic_session="session", dynamic_scan_idx="scan_idx")
+        key = [
+            dv_nn6_models() * DvConfig.Nn6 & dv_nn6_pipe.Response,
+        ]
+        return keys & key
+
+    def make(self, key):
+        unit_keys = (
+            DvConfig().part_table(key).unit_keys(key["animal_id"], key["dynamic_session"], key["dynamic_scan_idx"])
+        )
+
+        self.insert1(dict(key, n_units=len(unit_keys)))
+
+        self.Unit.insert([dict(unit_key, response_index=i) for i, unit_key in enumerate(unit_keys)])
+
+    def response(self, image_class, image_id, key=None):
+        if key is None:
+            key, n_units = self.fetch1(dj.key, "n_units")
+        else:
+            key, n_units = (self & key).fetch1(dj.key, "n_units")
+
+        dv_conf = DvConfig().part_table(key)
+        response = dv_conf.response(
+            key["animal_id"], key["dynamic_session"], key["dynamic_scan_idx"], image_class, image_id
+        )
+        assert len(response) == n_units
+        return response
 
 
 @schema
 class DynamicScanCandidate(dj.Manual):
     definition = """ # list of scans to process
-    
+
     -> fuse.ScanDone
     ---
     candidate_notes='' : varchar(1024)
