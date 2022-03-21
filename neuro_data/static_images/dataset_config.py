@@ -39,7 +39,7 @@ class ResponseConfig(ConfigBase, dj.Lookup):
     _config_type = "response"
 
     def response(self, dynamic_scan, trial_idx, condition_hashes, key=None):
-        key = self.fetch1('KEY') if key is None else key
+        key = self.fetch1("KEY") if key is None else key
         self.part_table(key).response(dynamic_scan, trial_idx, condition_hashes)
 
     class DvModel(dj.Part):
@@ -51,19 +51,21 @@ class ResponseConfig(ConfigBase, dj.Lookup):
         """
         content = [*DvModelConfig.fetch(as_dict=True)]
 
-        def response(self, dynamic_scan, trial_idx, condition_hashes, key=None, **kwargs):
+        def response(
+            self, dynamic_scan, trial_idx, condition_hashes, key=None, **kwargs
+        ):
             """
             dynamic_scan: dict(animal_id, session, scan_idx)
             trial_idx: list of trial indices
             cond: list of condition_hash
             """
             key = self.fetch() if key is None else key
-            responses = DvModelConfig().part_table(key).responses(
-                dynamic_scan, trial_idx, condition_hashes, **kwargs
+            responses = (
+                DvModelConfig()
+                .part_table(key)
+                .responses(dynamic_scan, trial_idx, condition_hashes, **kwargs)
             )
-            units = DvModelConfig().part_table(key).unit_keys(
-                dynamic_scan
-            )
+            units = DvModelConfig().part_table(key).unit_keys(dynamic_scan)
             assert responses.shape == (len(condition_hashes), len(units))
             return units, responses
 
@@ -98,7 +100,9 @@ class InputConfig(ConfigBase, dj.Lookup):
             )
             # reshape inputs
             frame = np.stack(frame)
-            assert len(frame.shape) == 3, f'Images has shape not supported: {frame.shape}!'
+            assert (
+                len(frame.shape) == 3
+            ), f"Images has shape not supported: {frame.shape}!"
             frame = frame[:, None, ...]
             return trial_idx, cond, frame, np.full(len(trial_idx), "stimulus.Frame")
 
@@ -140,10 +144,13 @@ class TierConfig(ConfigBase, dj.Lookup):
         ]
 
         def tier(self, scan_key, condition_hashes):
-            cond_tier_df = pd.DataFrame((
-                (ConditionTier & scan_key)
-                .fetch("condition_hash", "tier", as_dict=True)
-            ))
+            cond_tier_df = pd.DataFrame(
+                (
+                    (ConditionTier & scan_key).fetch(
+                        "condition_hash", "tier", as_dict=True
+                    )
+                )
+            )
             cond_df = pd.DataFrame(dict(condition_hash=condition_hashes))
             cond_df = cond_df.merge(cond_tier_df, on="condition_hash", how="left")
             assert cond_df.tier.notnull().all(), "Missing tier for some conditions!"
@@ -167,10 +174,18 @@ class LayerConfig(ConfigBase, dj.Lookup):
         ]
 
         def layer(self, unit_keys):
-            unit_layer_df = pd.DataFrame((
-                (anatomy.LayerMembership & unit_keys)
-                .fetch("animal_id", "session", "scan_idx", "layer", "unit_id", as_dict=True)
-            ))
+            unit_layer_df = pd.DataFrame(
+                (
+                    (anatomy.LayerMembership & unit_keys).fetch(
+                        "animal_id",
+                        "session",
+                        "scan_idx",
+                        "layer",
+                        "unit_id",
+                        as_dict=True,
+                    )
+                )
+            )
             unit_df = pd.DataFrame(unit_keys)
             unit_df = unit_df.merge(unit_layer_df, how="left")
             assert unit_df.layer.notnull().all(), "Missing layer for some units!"
@@ -183,11 +198,11 @@ class LayerConfig(ConfigBase, dj.Lookup):
         layer         :varchar(256)        # layer name
         """
         content = [
-            {'layer': 'L2/3'},
+            {"layer": "L2/3"},
         ]
 
         def layer(self, unit_keys):
-            return np.full(len(unit_keys), self.fetch1('layer'))
+            return np.full(len(unit_keys), self.fetch1("layer"))
 
 
 @schema
@@ -207,15 +222,23 @@ class AreaConfig(ConfigBase, dj.Lookup):
         ]
 
         def area(self, unit_keys):
-            unit_area_df = pd.DataFrame((
-                (anatomy.AreaMembership & unit_keys)
-                .fetch("animal_id", "session", "scan_idx", "brain_area", "unit_id", as_dict=True)
-            ))
+            unit_area_df = pd.DataFrame(
+                (
+                    (anatomy.AreaMembership & unit_keys).fetch(
+                        "animal_id",
+                        "session",
+                        "scan_idx",
+                        "brain_area",
+                        "unit_id",
+                        as_dict=True,
+                    )
+                )
+            )
             unit_df = pd.DataFrame(unit_keys)
             unit_df = unit_df.merge(unit_area_df, how="left")
             assert unit_df.area.notnull().all(), "Missing area for some units!"
             return unit_df.area.values
-    
+
     class Constant(dj.Part):
         definition = """
         -> master
@@ -223,11 +246,11 @@ class AreaConfig(ConfigBase, dj.Lookup):
         brain_area         :varchar(256)        # brain area name
         """
         content = [
-            {'brain_area': 'V1'},
+            {"brain_area": "V1"},
         ]
 
         def area(self, unit_keys):
-            return np.full(len(unit_keys), self.fetch1('brain_area'))
+            return np.full(len(unit_keys), self.fetch1("brain_area"))
 
 
 @schema
@@ -297,8 +320,8 @@ class StatsConfig(ConfigBase, dj.Lookup):
                 stimulus.Condition * stimulus.Frame
                 & "condition_hash in {}".format(tuple(condition_hashes))
             ).fetch("image_class")
-            assert (
-                set(image_classes) <= set(FF_CLASSES)
+            assert set(image_classes) <= set(
+                FF_CLASSES
             ), "StatsConfig.NeuroStaticNoBehFrame is only implemented for full-field stimulus"
 
             # reshape inputs
@@ -394,16 +417,22 @@ class DatasetConfig(ConfigBase, dj.Lookup):
 
         def compute_data(self, key=None):
             key = self.fetch1() if key is None else key
-            dynamic_scan = (DynamicScan() & {
-                "animal_id": key["animal_id"],
-                "session": key["dynamic_session"],
-                "scan_idx": key["dynamic_scan_idx"],
-            }).fetch1('KEY')
-            static_scan = (StaticScan() & {
-                "animal_id": key["animal_id"],
-                "session": key["static_session"],
-                "scan_idx": key["static_scan_idx"],
-            }).fetch1('KEY')
+            dynamic_scan = (
+                DynamicScan()
+                & {
+                    "animal_id": key["animal_id"],
+                    "session": key["dynamic_session"],
+                    "scan_idx": key["dynamic_scan_idx"],
+                }
+            ).fetch1("KEY")
+            static_scan = (
+                StaticScan()
+                & {
+                    "animal_id": key["animal_id"],
+                    "session": key["static_session"],
+                    "scan_idx": key["static_scan_idx"],
+                }
+            ).fetch1("KEY")
             log.info("Fecthing images")
             trial_idx, condition_hashes, images, types = (
                 InputConfig().part_table(key).input(static_scan)
@@ -502,13 +531,16 @@ class MultiDataset(dj.Manual):
 
     @property
     def next_group_id(self):
-        return StaticMultiDataset.fetch('group_id').max() + 1
+        return StaticMultiDataset.fetch("group_id").max() + 1
 
     def fill(self, member_key, description):
-        key = dict(group_id=self.next_group_id, description='Inserted with MultiDataset: ' + description)
-        mkey = (DatasetConfig & member_key).fetch('KEY', as_dict=True)
+        key = dict(
+            group_id=self.next_group_id,
+            description="Inserted with MultiDataset: " + description,
+        )
+        mkey = (DatasetConfig & member_key).fetch("KEY", as_dict=True)
         mkey = [{**k, **key, **(DatasetInputResponse & k).fetch1()} for k in mkey]
-        mkey = [{**k, 'name': DatasetConfig().part_table(k).name(**k)} for k in mkey]
+        mkey = [{**k, "name": DatasetConfig().part_table(k).name(**k)} for k in mkey]
 
         with self.connection.transaction:
             self.insert1(key, ignore_extra_fields=True)
@@ -518,19 +550,22 @@ class MultiDataset(dj.Manual):
 
     def fetch_data(self, key, key_order=None):
         ret = OrderedDict()
-        log.info('Fetching data for ' + repr(key))
-        for mkey in (self.Member() * DatasetInputResponse & key).fetch(dj.key,
-                                                order_by='animal_id ASC, session ASC, scan_idx ASC, preproc_id ASC'):
-            name = (self.Member() & mkey).fetch1('name')
+        log.info("Fetching data for " + repr(key))
+        for mkey in (self.Member() * DatasetInputResponse & key).fetch(
+            dj.key, order_by="animal_id ASC, session ASC, scan_idx ASC, preproc_id ASC"
+        ):
+            name = (self.Member() & mkey).fetch1("name")
             data_names = DatasetConfig().part_table(mkey).data_names
-            log.info('Data will be ({})'.format(','.join(data_names)))
+            log.info("Data will be ({})".format(",".join(data_names)))
 
             h5filename = DatasetConfig().part_table(mkey).get_filename()
-            log.info('Loading dataset {} --> {}'.format(name, h5filename))
+            log.info("Loading dataset {} --> {}".format(name, h5filename))
             ret[name] = datasets.StaticImageSet(h5filename, *data_names)
         if key_order is not None:
-            log.info('Reordering datasets according to given key order {}'.format(', '.join(key_order)))
-            ret = OrderedDict([
-                (k, ret[k]) for k in key_order
-            ])
-        return ret 
+            log.info(
+                "Reordering datasets according to given key order {}".format(
+                    ", ".join(key_order)
+                )
+            )
+            ret = OrderedDict([(k, ret[k]) for k in key_order])
+        return ret

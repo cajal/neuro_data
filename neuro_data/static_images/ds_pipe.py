@@ -8,7 +8,7 @@ fuse = dj.create_virtual_module("fuse", "pipeline_fuse")
 meso = dj.create_virtual_module("meso", "pipeline_meso")
 shared = dj.create_virtual_module("shared", "pipeline_shared")
 anatomy = dj.create_virtual_module("anatomy", "pipeline_anatomy")
-stimulus = dj.create_virtual_module('stimulus', 'pipeline_stimulus')
+stimulus = dj.create_virtual_module("stimulus", "pipeline_stimulus")
 dv_nn6_architecture = dj.create_virtual_module(
     "dv_nn6_architecture", "dv_nns_v6_architecture"
 )
@@ -98,6 +98,7 @@ def dv_nn6_models():
     keys = dj.U("architecture_hash", "train_hash") * keys
     return keys.proj(dynamic_session="session", dynamic_scan_idx="scan_idx")
 
+
 @schema
 class DvModelConfig(ConfigBase, dj.Lookup):
 
@@ -127,24 +128,36 @@ class DvModelConfig(ConfigBase, dj.Lookup):
             )
             units = (self * dv_nn6_scan.Scan.Unit & dynamic_scan).proj()
             unit_keys = units.fetch(
-                *fuse.ScanSet.Unit.primary_key, as_dict=True, order_by="nn_response_index"
+                *fuse.ScanSet.Unit.primary_key,
+                as_dict=True,
+                order_by="nn_response_index"
             )
 
             assert len(unit_keys) == n_units
 
             return unit_keys
 
-        def responses(
-            self, dynamic_scan, trial_idx, condition_hashes
-        ):
+        def responses(self, dynamic_scan, trial_idx, condition_hashes):
             assert len(trial_idx) == len(condition_hashes)
-            cond_df = pd.DataFrame({'condition_hash':condition_hashes})
-            resp_key_df = pd.DataFrame((stimulus.Frame & cond_df).fetch('image_class', 'image_id', 'condition_hash', as_dict=True))
-            response = dv_nn6_models() * dv_nn6_pipe.Response & dynamic_scan & self & resp_key_df
-            resp_df = pd.DataFrame((
-                response & resp_key_df
-            ).fetch("image_class", "image_id", "response", as_dict=True))
-            resp_df = cond_df.merge(resp_key_df.merge(resp_df, how='left'), how='left', validate='m:1')
+            cond_df = pd.DataFrame({"condition_hash": condition_hashes})
+            resp_key_df = pd.DataFrame(
+                (stimulus.Frame & cond_df).fetch(
+                    "image_class", "image_id", "condition_hash", as_dict=True
+                )
+            )
+            response = (
+                dv_nn6_models() * dv_nn6_pipe.Response
+                & dynamic_scan
+                & self
+                & resp_key_df
+            )
+            resp_df = pd.DataFrame(
+                (response & resp_key_df).fetch(
+                    "image_class", "image_id", "response", as_dict=True
+                )
+            )
+            resp_df = cond_df.merge(
+                resp_key_df.merge(resp_df, how="left"), how="left", validate="m:1"
+            )
             assert len(cond_df) == len(resp_df)
             return np.stack(resp_df.response.values)  # (n_images, n_units)
-            

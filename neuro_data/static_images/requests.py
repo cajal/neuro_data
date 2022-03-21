@@ -1,10 +1,18 @@
 from os import sched_getaffinity
-from .dataset_config import InputConfig, ResponseConfig, TierConfig, LayerConfig, AreaConfig, StatsConfig
+from .dataset_config import (
+    InputConfig,
+    ResponseConfig,
+    TierConfig,
+    LayerConfig,
+    AreaConfig,
+    StatsConfig,
+)
 from .data_schemas import StaticScan
 from .ds_pipe import DynamicScan
 import datajoint as dj
 
 schema = dj.schema("neurodata_static")
+
 
 @schema
 class DynamicStaticNoBehRequest(dj.Manual):
