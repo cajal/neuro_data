@@ -39,6 +39,10 @@ class ConfigBase:
         """.format(ct=self._config_type, cn=self.__class__.__name__,
                    extra_foreign=self._extra_foreign if hasattr(self, '_extra_foreign') else '')
 
+    def part_table(self, key=None):
+        key = {} if key is None else key
+        return getattr(self & key, (self & key).fetch1('{}_type'.format(self._config_type))) & self
+
     def fill(self):
         type_name = self._config_type + '_type'
         hash_name = self._config_type + '_hash'

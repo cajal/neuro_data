@@ -39,6 +39,7 @@ UNIQUE_FRAME = {
 }
 
 IMAGE_CLASSES = 'image_class in ("imagenet", "imagenet_v2_gray", "imagenet_v2_rgb")' # all valid natural image classes
+FF_CLASSES = ['imagenet', 'searched_nat', 'gaudy_imagenet2', 'exciting_imagenet', 'optimal_imagenet', "MEI_PC_recon_imagenet"]
 
 @schema
 class StaticScanCandidate(dj.Manual):
@@ -938,6 +939,11 @@ class StaticMultiDataset(dj.Manual):
                 StaticMultiDataset.Member().insert1(dict(scan, name = _template.format(**scan)), ignore_extra_fields=True)
 
     def fetch_data(self, key, key_order=None):
+        from neuro_data.static_images.dataset_config import MultiDataset
+        key = (self & key).fetch1()
+        if key in MultiDataset:
+            ret = MultiDataset().fetch_data(key, key_order=key_order)
+            return ret
         assert len(self & key) == 1, 'Key must refer to exactly one multi dataset'
         ret = OrderedDict()
         log.info('Fetching data for ' +  repr(key))
@@ -947,9 +953,9 @@ class StaticMultiDataset(dj.Manual):
             include_behavior = bool(Eye().proj() * Treadmill().proj() & mkey)
             data_names = ['images', 'responses'] if not include_behavior \
                 else ['images',
-                      'behavior',
-                      'pupil_center',
-                      'responses']
+                    'behavior',
+                    'pupil_center',
+                    'responses']
             log.info('Data will be ({})'.format(','.join(data_names)))
 
             h5filename = InputResponse().get_filename(mkey)
