@@ -13,7 +13,6 @@ from neuro_data.static_images import datasets
 
 from .data_schemas import (
     FF_CLASSES,
-    MASKED_CLASSES,
     ConditionTier,
     Frame,
     InputResponse,
@@ -21,7 +20,7 @@ from .data_schemas import (
     StaticMultiDataset,
     StaticScan,
 )
-from .ds_pipe import DvModelConfig, DynamicScan
+from .ds_pipe import DvScanInfo
 
 experiment = dj.create_virtual_module("experiment", "pipeline_experiment")
 stimulus = dj.create_virtual_module("stimulus", "pipeline_stimulus")
@@ -32,42 +31,6 @@ anatomy = dj.create_virtual_module("anatomy", "pipeline_anatomy")
 base = dj.create_virtual_module("base", "neurostatic_base")
 
 schema = dj.schema("neurodata_static")
-
-
-@schema
-class ResponseConfig(ConfigBase, dj.Lookup):
-    _config_type = "response"
-
-    def response(self, dynamic_scan, trial_idx, condition_hashes, key=None):
-        key = self.fetch1("KEY") if key is None else key
-        self.part_table(key).response(dynamic_scan, trial_idx, condition_hashes)
-
-    class DvModel(dj.Part):
-        ### each tuple here should represent a dynamic model configuration, models trained on different dynamic scans with same core/architecture should share the same tuple
-        definition = """
-        -> master
-        ---
-        -> DvModelConfig
-        """
-        content = [*DvModelConfig.fetch(as_dict=True)]
-
-        def response(
-            self, dynamic_scan, trial_idx, condition_hashes, key=None, **kwargs
-        ):
-            """
-            dynamic_scan: dict(animal_id, session, scan_idx)
-            trial_idx: list of trial indices
-            cond: list of condition_hash
-            """
-            key = self.fetch() if key is None else key
-            responses = (
-                DvModelConfig()
-                .part_table(key)
-                .responses(dynamic_scan, trial_idx, condition_hashes, **kwargs)
-            )
-            units = DvModelConfig().part_table(key).unit_keys(dynamic_scan)
-            assert responses.shape == (len(condition_hashes), len(units))
-            return units, responses
 
 
 @schema
@@ -378,14 +341,13 @@ class DatasetConfig(ConfigBase, dj.Lookup):
         transfer_to_tmp=False,
         file_format="dynamic-static-{animal_id}-{dynamic_session}-{dynamic_scan_idx}-{static_session}-{static_scan_idx}-{dataset_hash}.h5",
     )
-    class DynamicStaticNoBeh(dj.Part):
+    class DvStaticNoBeh(dj.Part):
         definition = """ # dynamic model responses to static images shown in a static scan, units in the dataset are from the dynamic scan
         -> master
         ---
-        -> DynamicScan.proj(dynamic_session='session', dynamic_scan_idx='scan_idx')
+        -> DvScanInfo.proj(dynamic_session='session', dynamic_scan_idx='scan_idx')
         -> StaticScan.proj(static_session='session', static_scan_idx='scan_idx')
         -> InputConfig
-        -> ResponseConfig
         -> TierConfig
         -> LayerConfig
         -> AreaConfig
@@ -402,9 +364,10 @@ class DatasetConfig(ConfigBase, dj.Lookup):
 
         @property
         def static_scan(self):
+            """returns the scan that would be injected into InputResponse, the scan key should match the scan key returned by compute_data"""
             return (
                 StaticScan
-                & self.proj(session="static_session", scan_idx="static_scan_idx")
+                & self.proj(..., session="dynamic_session", scan_idx="dynamic_scan_idx")
             ).fetch1("KEY")
 
         @property
@@ -418,7 +381,7 @@ class DatasetConfig(ConfigBase, dj.Lookup):
         def compute_data(self, key=None):
             key = self.fetch1() if key is None else key
             dynamic_scan = (
-                DynamicScan()
+                DvScanInfo
                 & {
                     "animal_id": key["animal_id"],
                     "session": key["dynamic_session"],
@@ -438,21 +401,20 @@ class DatasetConfig(ConfigBase, dj.Lookup):
                 InputConfig().part_table(key).input(static_scan)
             )
             log.info("Fetching responses")
-            dynamic_unit_key, responses = (
-                ResponseConfig()
-                .part_table(key)
-                .response(
-                    dynamic_scan,
-                    trial_idx=trial_idx,
-                    condition_hashes=condition_hashes,
-                )
+            responses = (DvScanInfo & key).responses(
+                dynamic_scan,
+                trial_idx=trial_idx,
+                condition_hashes=condition_hashes,
+            )
+            dynamic_unit_keys = (DvScanInfo & key).unit_keys(
+                dynamic_scan,
             )
             log.info("Fecthing tiers")
             tiers = TierConfig().part_table(key).tier(static_scan, condition_hashes)
             log.info("Fecthing layer information")
-            layer = LayerConfig().part_table(key).layer(dynamic_unit_key)
+            layer = LayerConfig().part_table(key).layer(dynamic_unit_keys)
             log.info("Fecthing area information")
-            area = AreaConfig().part_table(key).area(dynamic_unit_key)
+            area = AreaConfig().part_table(key).area(dynamic_unit_keys)
             log.info("Computing stats")
             statistics = (
                 StatsConfig()
@@ -462,16 +424,16 @@ class DatasetConfig(ConfigBase, dj.Lookup):
                 )
             )
             neurons = dict(
-                unit_ids=np.array([k["unit_id"] for k in dynamic_unit_key]).astype(
+                unit_ids=np.array([k["unit_id"] for k in dynamic_unit_keys]).astype(
                     np.uint16
                 ),
-                animal_ids=np.array([k["animal_id"] for k in dynamic_unit_key]).astype(
+                animal_ids=np.array([k["animal_id"] for k in dynamic_unit_keys]).astype(
                     np.uint16
                 ),
-                sessions=np.array([k["session"] for k in dynamic_unit_key]).astype(
+                sessions=np.array([k["session"] for k in dynamic_unit_keys]).astype(
                     np.uint8
                 ),
-                scan_idx=np.array([k["scan_idx"] for k in dynamic_unit_key]).astype(
+                scan_idx=np.array([k["scan_idx"] for k in dynamic_unit_keys]).astype(
                     np.uint8
                 ),
                 layer=layer.astype("S"),
@@ -516,7 +478,7 @@ class DatasetInputResponse(dj.Computed):
 @schema
 class MultiDataset(dj.Manual):
     definition = """
-    group_id                : smallint                  
+    -> StaticMultiDataset             
     ---
     description             : varchar(255)               # description of the dataset
     """
@@ -543,10 +505,10 @@ class MultiDataset(dj.Manual):
         mkey = [{**k, "name": DatasetConfig().part_table(k).name(**k)} for k in mkey]
 
         with self.connection.transaction:
-            self.insert1(key, ignore_extra_fields=True)
-            self.Member().insert(mkey, ignore_extra_fields=True)
             StaticMultiDataset.insert1(key, ignore_extra_fields=True)
             StaticMultiDataset.Member.insert(mkey, ignore_extra_fields=True)
+            self.insert1(key, ignore_extra_fields=True)
+            self.Member().insert(mkey, ignore_extra_fields=True)
 
     def fetch_data(self, key, key_order=None):
         ret = OrderedDict()
