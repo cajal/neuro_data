@@ -47,16 +47,19 @@ class StaticScanCandidate(dj.Manual):
     
     -> fuse.ScanDone
     ---
-    candidate_notes='' : varchar(1024)
+    candidate_notes=''      : varchar(1024)
+    scan_type='in_vivo'     : varchar(20)
     """
     @staticmethod
-    def fill(key, candidate_notes='', segmentation_method=6, spike_method=5,
+    def fill(key, candidate_notes='', scan_type='in_vivo', segmentation_method=6, spike_method=5,
              pipe_version=1):
         """ Fill an entry with key"""
         StaticScanCandidate.insert1({'segmentation_method': segmentation_method,
                                      'spike_method': spike_method,
                                      'pipe_version': pipe_version, **key,
-                                     'candidate_notes': candidate_notes},
+                                     'candidate_notes': candidate_notes,
+                                     'scan_type': scan_type
+                                     },
                                     skip_duplicates=True)
 
 @schema
@@ -64,6 +67,8 @@ class StaticScan(dj.Computed):
     definition = """ # gatekeeper for scan and preprocessing settings
     
     -> fuse.ScanDone
+    ---
+    scan_type='in_vivo'           : varchar(20)         # whether static stimuli were shown in_vivo or shown in_silico to a digital twin
     """
 
     class Unit(dj.Part):
@@ -75,7 +80,7 @@ class StaticScan(dj.Computed):
         -> fuse.ScanSet.Unit
         """
 
-    key_source = fuse.ScanDone() & StaticScanCandidate & 'spike_method=5 and segmentation_method=6'
+    key_source = fuse.ScanDone() & StaticScanCandidate & 'spike_method in (5,6) and segmentation_method=6'
 
     @staticmethod
     def complete_key(key):
@@ -83,13 +88,14 @@ class StaticScan(dj.Computed):
                      (meso.ScanSet.Unit() & key)).fetch1(dj.key), **key)
 
     def make(self, key):
-        self.insert(fuse.ScanDone() & key, ignore_extra_fields=True)
+        self.insert(StaticScanCandidate & key, ignore_extra_fields=True)
         pipe = (fuse.ScanDone() & key).fetch1('pipe')
         pipe = dj.create_virtual_module(pipe, 'pipeline_' + pipe)
-        self.Unit().insert(fuse.ScanDone * pipe.ScanSet.Unit * pipe.MaskClassification.Type & key
-                           & dict(pipe_version=1, segmentation_method=6, spike_method=5, type='soma'),
-                           ignore_extra_fields=True)
-
+        units = (fuse.ScanDone * pipe.ScanSet.Unit * pipe.MaskClassification.Type & key
+                           & dict(pipe_version=1, type='soma'))
+        assert len(units) > 0, 'No units found!'
+        self.Unit().insert(units,
+                        ignore_extra_fields=True)
 
 @schema
 class Tier(dj.Lookup):
