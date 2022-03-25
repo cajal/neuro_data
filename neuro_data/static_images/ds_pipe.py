@@ -141,19 +141,19 @@ class DvScanInfo(dj.Computed):
             [dict(unit_key, response_index=i) for i, unit_key in enumerate(unit_keys)]
         )
 
-    def responses(self, dynamic_scan, trial_idx, condition_hashes, key=None):
+    def responses(self, trial_idx, condition_hashes, key=None):
         if key is None:
             key, n_units = self.fetch1(dj.key, "n_units")
         else:
             key, n_units = (self & key).fetch1(dj.key, "n_units")
 
         dv_conf = DvModelConfig().part_table(key)
-        responses = dv_conf.responses(dynamic_scan, trial_idx, condition_hashes)
+        responses = dv_conf.responses(key, trial_idx, condition_hashes)
         assert responses.shape[1] == n_units
         return responses
 
-    def unit_keys(self, dynamic_scan, key=None):
+    def unit_keys(self, key=None):
         key = self.fetch1(dj.key) if key is None else key
         dv_conf = DvModelConfig().part_table(key)
-        unit_keys = dv_conf.unit_keys(dynamic_scan)
+        unit_keys = dv_conf.unit_keys(key)
         return unit_keys

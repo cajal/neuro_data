@@ -1,15 +1,12 @@
 from collections import OrderedDict
-from os import stat
-from selectors import EpollSelector
-from statistics import mode
 
 import datajoint as dj
 import numpy as np
 import pandas as pd
 from neuro_data import logger as log
+from neuro_data.static_images import datasets
 from neuro_data.utils.config import ConfigBase
 from neuro_data.utils.data import h5cached
-from neuro_data.static_images import datasets
 
 from .data_schemas import (
     FF_CLASSES,
@@ -52,17 +49,22 @@ class InputConfig(ConfigBase, dj.Lookup):
         ]
 
         def input(self, scan_key):
-            params = self.fetch1()
-            trial_idx, cond, frame = (
-                InputResponse.Input * Frame & stimulus.Frame & scan_key & params
-            ).fetch(
-                "trial_idx",
-                "condition_hash",
-                "frame",
-                order_by="trial_idx",
-            )
-            # reshape inputs
-            frame = np.stack(frame)
+            params = (self * Preprocessing).fetch1()
+            if not (params["gamma"] or params["linear_mon"]):
+                trial_idx, cond, frame = (
+                    InputResponse.Input * Frame & stimulus.Frame & scan_key & params
+                ).fetch(
+                    "trial_idx",
+                    "condition_hash",
+                    "frame",
+                    order_by="trial_idx",
+                )
+                # reshape inputs
+                frame = np.stack(frame)
+            else:
+                raise NotImplementedError(
+                    f'InputConfig: gamma={params["gamma"]}, linear_mon={params["linear_mon"]} not implemented!'
+                )
             assert (
                 len(frame.shape) == 3
             ), f"Images has shape not supported: {frame.shape}!"
@@ -226,12 +228,11 @@ class StatsConfig(ConfigBase, dj.Lookup):
         # mimic the behavior of InputResponse with the corresponding preprocess_id to compute the statistics of input and responses, do not compute stats for behavior variables
         -> master
         ---
-        stats_tier="train"                 : enum("train", "test", "validation", "all")                # tier used for computing stats
+        stats_tier="train"                 : enum("train", "test", "validation", "all")               # tier used for computing stats
         stats_per_input                    : tinyint                                                  # whether to compute stats per input
-        linear_monitor                     : tinyint                                                  # whether to compute linear monitor
         """
         content = [
-            dict(stats_tier="train", stats_per_input=1, linear_monitor=0),
+            dict(stats_tier="train", stats_per_input=1),
         ]
 
         @staticmethod
@@ -256,7 +257,11 @@ class StatsConfig(ConfigBase, dj.Lookup):
                 mean=data.mean(axis=(-1, -2)).mean().astype(np.float32)
                 if per_input
                 else data.mean().astype(np.float32),
-                std=data.std(axis=(-1, -2)).mean().astype(np.float32)
+                std=data.std(axis=(-1, -2))
+                .mean()
+                .astype(
+                    np.float32
+                )  # ddof is not set here to match the behavior of InputResponse
                 if per_input
                 else data.std(ddof=1).astype(np.float32),
                 min=data.min().astype(np.float32),
@@ -266,9 +271,7 @@ class StatsConfig(ConfigBase, dj.Lookup):
             ret["stimulus.Frame"] = ret["all"]
             return ret
 
-        def stats(
-            self, dynamic_scan, condition_hashes, trial_idx, images, responses, tiers
-        ):
+        def stats(self, condition_hashes, images, responses, tiers):
 
             key = self.fetch1()
             # check if the method is eligible for condition_hashes requested
@@ -294,16 +297,6 @@ class StatsConfig(ConfigBase, dj.Lookup):
                 images = images[:, None, ...]
             elif len(images.shape) == 4:
                 images = images.transpose(0, 3, 1, 2)
-
-            # gamma correction
-            if key["linear_monitor"]:
-                log.info("Gamma correcting images.")
-                from staticnet_analyses import multi_mei
-
-                if len(multi_mei.ClosestCalibration & self) == 0:
-                    raise ValueError("No ClosestMonitorCalibration for this scan.")
-                f, f_inv = (multi_mei.ClosestCalibration & self).get_fs()
-                images = f(images)
 
             # compute stats
             if key["stats_tier"] in ("train", "validation", "test"):
@@ -402,13 +395,10 @@ class DatasetConfig(ConfigBase, dj.Lookup):
             )
             log.info("Fetching responses")
             responses = (DvScanInfo & key).responses(
-                dynamic_scan,
                 trial_idx=trial_idx,
                 condition_hashes=condition_hashes,
             )
-            dynamic_unit_keys = (DvScanInfo & key).unit_keys(
-                dynamic_scan,
-            )
+            dynamic_unit_keys = (DvScanInfo & key).unit_keys()
             log.info("Fecthing tiers")
             tiers = TierConfig().part_table(key).tier(static_scan, condition_hashes)
             log.info("Fecthing layer information")
@@ -419,9 +409,7 @@ class DatasetConfig(ConfigBase, dj.Lookup):
             statistics = (
                 StatsConfig()
                 .part_table(key)
-                .stats(
-                    dynamic_scan, condition_hashes, trial_idx, images, responses, tiers
-                )
+                .stats(condition_hashes, images, responses, tiers)
             )
             neurons = dict(
                 unit_ids=np.array([k["unit_id"] for k in dynamic_unit_keys]).astype(
@@ -455,11 +443,12 @@ class DatasetConfig(ConfigBase, dj.Lookup):
 class DatasetInputResponse(dj.Computed):
     # Inject datasets back to InputResponse table. Mutltiple datasets with the same
     # static scan but different dataset_hash may share the same InputResponse entry.
+    # The entry in InputResponse is only inserted to provide necessary dependencies for downstream tables, e.g. StaticMultiDataset.Member
+    # Part tables of InputResponse is left empty if the master entry is inserted from this table.
     definition = """
     -> DatasetConfig
     ---
-    -> StaticScan
-    -> Preprocessing
+    -> InputResponse
     """
 
     def make(self, key):
@@ -471,7 +460,12 @@ class DatasetInputResponse(dj.Computed):
             **key,
             **input_response_key,
         }
-        InputResponse().insert1(key, allow_direct_insert=True, ignore_extra_fields=True)
+        InputResponse().insert1(
+            key,
+            allow_direct_insert=True,
+            ignore_extra_fields=True,
+            skip_duplicates=True,
+        )
         self.insert1(key, ignore_extra_fields=True)
 
 

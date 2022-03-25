@@ -51,6 +51,7 @@ class ConfigBase:
                         if isclass(getattr(self, member)) and issubclass(getattr(self, member), dj.Part)]:
                 log.info('Checking' + rel.__name__)
                 for key in rel().content:
+                    assert set(key.keys()) == set(rel.heading.secondary_attributes)
                     key[type_name] = rel.__name__
                     key[hash_name] = key_hash(key)
 

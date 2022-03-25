@@ -1,4 +1,3 @@
-from os import sched_getaffinity
 from .dataset_config import (
     InputConfig,
     TierConfig,
