@@ -104,6 +104,38 @@ class DvModelConfig(ConfigBase, dj.Lookup):
             assert len(cond_df) == len(resp_df)
             return np.stack(resp_df.response.values)  # (n_images, n_units)
 
+        def unique_unit_mapping(self, dynamic_scan):
+            if not (
+                self
+                * dv_nn6_scan.ScanConfig.Scan1()
+                * dv_scan1_scan_dataset.UnitConfig.Unique()
+            ):
+                raise NotImplementedError(
+                    "`unique_unit_mapping` is not implemented for key {}!".format(
+                        self.fetch1()
+                    )
+                )
+            key = (
+                (
+                    self
+                    * dv_nn6_scan.ScanConfig.Scan1()
+                    * dv_scan1_scan_dataset.UnitConfig.Unique()
+                )
+                & dynamic_scan
+            ).fetch1()  # get unique_id
+            unique_unit_key = (dv_scan1_scan.Unique() & dynamic_scan & key).fetch1(
+                "KEY"
+            )
+            unique_unit_rel = (
+                dv_scan1_scan.Unique.Unit
+                * dv_scan1_scan.Unique.Neuron.proj(unique_unit_id="unit_id")
+                & unique_unit_key
+            )
+            return (
+                dj.U("animal_id", "session", "scan_idx", "unit_id", "unique_unit_id")
+                & unique_unit_rel
+            )
+
 
 @schema
 class DvScanInfo(dj.Computed):
@@ -153,7 +185,15 @@ class DvScanInfo(dj.Computed):
         return responses
 
     def unit_keys(self, key=None):
-        key = self.fetch1(dj.key) if key is None else key
+        key = key or self.fetch1(dj.key)
         dv_conf = DvModelConfig().part_table(key)
         unit_keys = dv_conf.unit_keys(key)
         return unit_keys
+
+    def unique_unit_mapping(self, key=None):
+        """
+        Returns a datajoint relation with primary keys: (animal_id, session, scan_idx, unit_id, unique_unit_id)
+        The unique_unit_id is the highest ranked unit in the dyanmic scan that was detected as a duplicate to the unit_id.
+        """
+        key = key or self.fetch1(dj.key)
+        return DvModelConfig().part_table(key).unique_unit_mapping(key)
