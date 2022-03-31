@@ -682,6 +682,34 @@ class InputResponse(dj.Computed, FilterMixin):
             )
             return ret
 
+        def run_stats_input(selector, types, ix, axis=None, per_input=False):
+            ret = {}
+            for t in np.unique(types):
+                if not np.any(ix & (types == t)):
+                    continue
+                data = selector(ix & (types == t))
+
+                ret[t] = dict(
+                    mean=data.mean(axis=axis).astype(np.float32) 
+                         if not per_input
+                         else data.mean(axis=(-1, -2)).mean().astype(np.float32),
+                    std=data.std(axis=axis, ddof=1).astype(np.float32) 
+                        if not per_input
+                        else data.std(axis=(-1, -2)).mean().astype(np.float32),
+                    min=data.min(axis=axis).astype(np.float32),
+                    max=data.max(axis=axis).astype(np.float32),
+                    median=np.median(data, axis=axis).astype(np.float32)
+                )
+            data = selector(ix)
+            ret['all'] = dict(
+                mean=data.mean(axis=axis).astype(np.float32),
+                std=data.std(axis=axis, ddof=1).astype(np.float32),
+                min=data.min(axis=axis).astype(np.float32),
+                max=data.max(axis=axis).astype(np.float32),
+                median=np.median(data, axis=axis).astype(np.float32)
+            )
+            return ret
+
         # --- compute statistics
         log.info('Computing statistics on training dataset')
         response_statistics = run_stats(lambda ix: responses[ix], types, tiers == 'train', axis=0)
