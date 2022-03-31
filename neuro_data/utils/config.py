@@ -39,6 +39,10 @@ class ConfigBase:
         """.format(ct=self._config_type, cn=self.__class__.__name__,
                    extra_foreign=self._extra_foreign if hasattr(self, '_extra_foreign') else '')
 
+    def part_table(self, key=None):
+        key = {} if key is None else key
+        return getattr(self & key, (self & key).fetch1('{}_type'.format(self._config_type))) & self
+
     def fill(self):
         type_name = self._config_type + '_type'
         hash_name = self._config_type + '_hash'
@@ -47,6 +51,7 @@ class ConfigBase:
                         if isclass(getattr(self, member)) and issubclass(getattr(self, member), dj.Part)]:
                 log.info('Checking' + rel.__name__)
                 for key in rel().content:
+                    assert set(key.keys()) == set(rel.heading.secondary_attributes)
                     key[type_name] = rel.__name__
                     key[hash_name] = key_hash(key)
 
