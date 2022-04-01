@@ -19,12 +19,7 @@ from .data_schemas import (
 )
 from .ds_pipe import DvScanInfo
 
-experiment = dj.create_virtual_module("experiment", "pipeline_experiment")
 stimulus = dj.create_virtual_module("stimulus", "pipeline_stimulus")
-fuse = dj.create_virtual_module("fuse", "pipeline_fuse")
-meso = dj.create_virtual_module("meso", "pipeline_meso")
-shared = dj.create_virtual_module("shared", "pipeline_shared")
-anatomy = dj.create_virtual_module("anatomy", "pipeline_anatomy")
 base = dj.create_virtual_module("base", "neurostatic_base")
 
 schema = dj.schema("neurodata_static")
@@ -139,6 +134,7 @@ class LayerConfig(ConfigBase, dj.Lookup):
         ]
 
         def layer(self, unit_keys):
+            anatomy = dj.create_virtual_module("anatomy", "pipeline_anatomy")
             unit_layer_df = pd.DataFrame(
                 (
                     (anatomy.LayerMembership & unit_keys).fetch(
@@ -187,6 +183,7 @@ class AreaConfig(ConfigBase, dj.Lookup):
         ]
 
         def area(self, unit_keys):
+            anatomy = dj.create_virtual_module("anatomy", "pipeline_anatomy")
             unit_area_df = pd.DataFrame(
                 (
                     (anatomy.AreaMembership & unit_keys).fetch(
