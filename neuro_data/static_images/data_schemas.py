@@ -27,6 +27,8 @@ stimulus = dj.create_virtual_module('stimulus', 'pipeline_stimulus')
 shared = dj.create_virtual_module('shared', 'pipeline_shared')
 anatomy = dj.create_virtual_module('anatomy', 'pipeline_anatomy')
 treadmill = dj.create_virtual_module('treadmill', 'pipeline_treadmill')
+base = dj.create_virtual_module("base", "neurostatic_base")
+imagenet = dj.create_virtual_module('imagenet', 'pipeline_imagenet')
 
 schema = dj.schema('neurodata_static')
 
@@ -131,7 +133,7 @@ class MaskedClassLUT(dj.Lookup):
     """
     contents = [(1, 'diverse_mei', 'stimulus.StaticImage.DiverseMEI'),
                 (2, 'mei2', 'stimulus.StaticImage.MEICollection'),
-                (3, 'nat_dei', 'stimulus.StaticImage.SubsetNatDiverseMEI')
+                (3, 'nat_dei', 'stimulus.StaticImage.SubsetNatDiverseMEI'),
                 (4, 'mask_fixed_mei', 'stimulus.StaticImage.MaskFixedMEI')]
 
     def get_stim_table(self):
@@ -217,7 +219,7 @@ class ImageNetSplit(dj.Lookup):
             unique_mei_frames = dj.U('image_id', 'image_class').aggr(frame_table * stimulus.Trial & scan_key & [{'image_class':ic} for ic in MEI_CLASSES], repeats='COUNT(*)')
             if len(unique_mei_frames) > 0:
                 image_ids, image_classes = (unique_mei_frames & 'repeats > {}'.format(n)).fetch('image_id', 'image_class')
-                    self.insert([{'image_id': iid, 'image_class': ic, 'tier': 'test_mei'} for iid, ic in
+                self.insert([{'image_id': iid, 'image_class': ic, 'tier': 'test_mei'} for iid, ic in
                         zip(image_ids, image_classes)], skip_duplicates=True)
 
 @schema
@@ -749,12 +751,8 @@ class InputResponse(dj.Computed, FilterMixin):
 
                 input_rel = stimulus.Frame * trials & [{'tier': t} for t in np.unique(tiers[ix])]
                 if len(input_rel & [{'image_class': ic} for ic in MASKED_CLASSES]) == 0: # no masked images, all full-field
-                    input_mean = data.mean(axis=axis).astype(np.float32) 
-                                if not per_input
-                                else data.mean(axis=(-1, -2)).mean().astype(np.float32)
-                    input_std = data.std(axis=axis, ddof=1).astype(np.float32) 
-                                if not per_input
-                                else data.std(axis=(-1, -2)).mean().astype(np.float32)
+                    input_mean = data.mean(axis=axis).astype(np.float32) if not per_input else data.mean(axis=(-1, -2)).mean().astype(np.float32)
+                    input_std = data.std(axis=axis, ddof=1).astype(np.float32) if not per_input else data.std(axis=(-1, -2)).mean().astype(np.float32)
                 else: # at least one masked image_class
                     assert prepare_params['stats_per_input'], 'statistics has to be computed per input when inputs contain masked image classes!'
 
@@ -815,7 +813,7 @@ class InputResponse(dj.Computed, FilterMixin):
         response_statistics = run_stats(lambda ix: responses[ix], types, tiers == 'train', axis=0)
 
         ix = np.arange(len(tiers)) if preproc_params['input_stats'] == 'all' else tiers == preproc_params['input_stats']
-        input_statistics = run_stats_input(lambda ix: images[ix], types, ix, axis=0, preproc_params['stats_per_input']) 
+        input_statistics = run_stats_input(lambda ix: images[ix], types, ix, axis=0, per_input=preproc_params['stats_per_input']) 
 
         statistics = dict(
             images=input_statistics,
