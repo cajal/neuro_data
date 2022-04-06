@@ -38,8 +38,11 @@ UNIQUE_FRAME = {
     'stimulus.ColorFrameProjector': ('image_id', 'image_class'),
 }
 
-IMAGE_CLASSES = 'image_class in ("imagenet", "imagenet_v2_gray", "imagenet_v2_rgb")' # all valid natural image classes
-FF_CLASSES = ['imagenet', 'searched_nat', 'gaudy_imagenet2', 'exciting_imagenet', 'optimal_imagenet', "MEI_PC_recon_imagenet"]
+IMAGENET_CLASSES = 'image_class in ("imagenet", "imagenet_v2_gray", "imagenet_v2_rgb", "optimal_imagenet")' # all valid natural image classes
+FF_CLASSES = ['imagenet', 'searched_nat', 'gaudy_imagenet2', 'exciting_imagenet', 'optimal_imagenet', "MEI_PC_recon_imagenet", "tue_gray_mei", "tue_gray_gabor"]
+MASKED_CLASSES = ['diverse_mei', 'mei2', 'masked_single', "mask_fixed_mei"]
+MEI_CLASSES = ['mei2', 'mask_fixed_mei']
+ORACLE_TABLES = [imagenet.Album.Oracle & 'image_class = "imagenet"', stimulus.StaticImage.MEIOracle, stimulus.StaticImage.MaskedMEIOracle]
 
 @schema
 class StaticScanCandidate(dj.Manual):
@@ -106,7 +109,7 @@ class Tier(dj.Lookup):
 
     @property
     def contents(self):
-        yield from zip(["train", "test", "validation"])
+        yield from zip(["train", "test", "validation", "test_mei"])
 
 
 @schema
@@ -117,6 +120,25 @@ class ExcludedTrial(dj.Manual):
     ---
     exclusion_comment='': varchar(64)   # reasons for exclusion
     """
+
+@schema
+class MaskedClassLUT(dj.Lookup):
+    definition = """  # Lookup table to fetch table query for a certian masked image_class
+    class_id   :  int
+    image_class:  varchar(16)    # image class name
+    ---
+    table      :  varchar(1024)       # table query to fetch the stimuli for a certain masked image_class
+    """
+    contents = [(1, 'diverse_mei', 'stimulus.StaticImage.DiverseMEI'),
+                (2, 'mei2', 'stimulus.StaticImage.MEICollection'),
+                (3, 'nat_dei', 'stimulus.StaticImage.SubsetNatDiverseMEI')
+                (4, 'mask_fixed_mei', 'stimulus.StaticImage.MaskFixedMEI')]
+
+    def get_stim_table(self):
+        """ Return the stimulus tables (datajoint user tables) for a single training image class"""
+        table_strs = self.fetch('table')
+        tables = [eval(table_str) for table_str in table_strs]
+        return tables
 
 # based on mesonet.MesoNetSplit
 @schema
@@ -152,36 +174,51 @@ class ImageNetSplit(dj.Lookup):
         else:
             print('Static images were not shown for this scan')
 
-        # Get all image ids in this scan
-        all_frames = frame_table * stimulus.Trial & scan_key & IMAGE_CLASSES
+        # Skip fill if all frames have already been inserted
+        all_frames = frame_table * stimulus.Trial & scan_key
         unique_frames = dj.U('image_id', 'image_class').aggr(all_frames, repeats='COUNT(*)')
-        image_ids, image_classes = unique_frames.fetch('image_id', 'image_class', order_by='repeats DESC')
-        num_frames = len(image_ids)
-        # * NOTE: this fetches all oracle images first and the rest in a "random" order;
-        # we use that random order to make the validation/training division below.
+        if len(self & unique_frames) == len(unique_frames):            
+            print('Fill skipped: all frames have already been assigned tiers.')
+        else:
+            # Get all valid imagenet images in this scan
+            valid_rel = [imagenet.Album.Oracle & imagenet.ValidAlbum, imagenet.Album.Single & imagenet.ValidAlbum]
+            all_frames = frame_table * stimulus.Trial & scan_key & IMAGENET_CLASSES & valid_images
+            image_ids, image_classes = (unique_frames & valid_rel).fetch('image_id', 'image_class', order_by='repeats DESC')
+            num_frames = len(image_ids)
+            # * NOTE: this fetches all oracle images first and the rest in a "random" order;
+            # we use that random order to make the validation/training division below.
 
-        # Get number of repeated frames
-        assert len(unique_frames) != 0, 'unique_frames == 0'
+            # Get number of repeated frames
+            assert len(unique_frames) != 0, 'unique_frames == 0'
+            n = int(np.median(unique_frames.fetch('repeats')))  # HACK
+            num_oracles = len(unique_frames & 'repeats > {}'.format(n))  # repeats
+            if num_oracles == 0:
+                raise ValueError('Could not find repeated frames to use for oracle.')
+            if len(self & (unique_frames & 'repeats > {}'.format(n)) & 'tier != "test"') != 0: # check if there exists any oracle image that have been assigned in a non-test set
+                raise ValueError('Overlap between test set and train/validation set!')
 
-        n = int(np.median(unique_frames.fetch('repeats')))  # HACK
-        num_oracles = len(unique_frames & 'repeats > {}'.format(n))  # repeats
-        if num_oracles == 0:
-            raise ValueError('Could not find repeated frames to use for oracle.')
+            # Compute number of validation examples
+            num_validation = int(np.ceil((num_frames - num_oracles) * 0.1))  # 10% validation examples
 
-        # Compute number of validation examples
-        num_validation = int(np.ceil((num_frames - num_oracles) * 0.1))  # 10% validation examples
+            # Insert
+            self.insert([{'image_id': iid, 'image_class': ic, 'tier': 'test'} for iid, ic in
+                        zip(image_ids[:num_oracles], image_classes[:num_oracles])],
+                        skip_duplicates=True)
+            self.insert([{'image_id': iid, 'image_class': ic, 'tier': 'validation'} for
+                        iid, ic in zip(image_ids[num_oracles: num_oracles + num_validation],
+                                        image_classes[num_oracles: num_oracles + num_validation])])
+            self.insert([{'image_id': iid, 'image_class': ic, 'tier': 'train'} for iid, ic in
+                        zip(image_ids[num_oracles + num_validation:],
+                            image_classes[num_oracles + num_validation:])])
+            # * NOTE: This will error out if a certain non-test image has already be inserted previously to prevent inconsistent 
+            # train/validation split across scans using an identical album. 
 
-        # Insert
-        self.insert([{'image_id': iid, 'image_class': ic, 'tier': 'test'} for iid, ic in
-                     zip(image_ids[:num_oracles], image_classes[:num_oracles])],
-                    skip_duplicates=True)
-        self.insert([{'image_id': iid, 'image_class': ic, 'tier': 'validation'} for
-                     iid, ic in zip(image_ids[num_oracles: num_oracles + num_validation],
-                                    image_classes[num_oracles: num_oracles + num_validation])])
-        self.insert([{'image_id': iid, 'image_class': ic, 'tier': 'train'} for iid, ic in
-                     zip(image_ids[num_oracles + num_validation:],
-                         image_classes[num_oracles + num_validation:])])
-
+            # Hack: Assign tier for MEI test images if there exists any
+            unique_mei_frames = dj.U('image_id', 'image_class').aggr(frame_table * stimulus.Trial & scan_key & [{'image_class':ic} for ic in MEI_CLASSES], repeats='COUNT(*)')
+            if len(unique_mei_frames) > 0:
+                image_ids, image_classes = (unique_mei_frames & 'repeats > {}'.format(n)).fetch('image_id', 'image_class')
+                    self.insert([{'image_id': iid, 'image_class': ic, 'tier': 'test_mei'} for iid, ic in
+                        zip(image_ids, image_classes)], skip_duplicates=True)
 
 @schema
 class ConditionTier(dj.Computed):
@@ -257,7 +294,7 @@ class ConditionTier(dj.Computed):
 
                 # deal with ImageNet frames first
                 log.info('Inserting assignment from ImageNetSplit')
-                targets = StaticScan * frame_table * ImageNetSplit & (stimulus.Trial & key) & IMAGE_CLASSES
+                targets = StaticScan * frame_table * ImageNetSplit & (stimulus.Trial & key) & IMAGENET_CLASSES
                 print('Inserting {} imagenet conditions!'.format(len(targets)))
                 self.insert(targets, ignore_extra_fields=True)
 
@@ -304,17 +341,27 @@ class Preprocessing(dj.Lookup):
     col              : smallint     # col size of movie
     filter           : varchar(24)  # filter type for window extraction
     gamma            : boolean      # whether to convert images to luminance values rather than pixel intensities
+    linear_mon       : boolean      # whether the monitor has been linearized (i.e. pixel and luminance space form a linear relationship)
+    input_stats      : varchar(16)  # input dataset used for computing statistics and normalization, options include 'train', 'validation', 'test', and 'all'
+    stats_per_input  : boolean      # whether to compute stats of each individual input and then average
+    data_source      : varchar(16)  # source of the input-response dataset, options include 'brain' or certain type of digital twin 
+    gt_availability  : boolean      # whether groundtruth in vivo response is available
     """
-    contents = [
-        {'preproc_id': 0, 'offset': 0.05, 'duration': 0.5, 'row': 36, 'col': 64,
-         'filter': 'hamming', 'gamma': False},  # this one was still processed with cropping
-        {'preproc_id': 1, 'offset': 0.05, 'duration': 0.5, 'row': 36, 'col': 64,
-         'filter': 'hamming', 'gamma': False},
-        {'preproc_id': 2, 'offset': 0.05, 'duration': 0.5, 'row': 72, 'col': 128,
-         'filter': 'hamming', 'gamma': False},
-        {'preproc_id': 3, 'offset': 0.05, 'duration': 0.5, 'row': 36, 'col': 64,
-         'filter': 'hamming', 'gamma': True},
-    ]
+    contents = [(0, 0.05, 0.5, 36, 64, 'hamming', 0, 'train', 0, 0, 'brain', 1),
+                (1, 0.05, 0.5, 36, 64, 'hamming', 0, 'train', 0, 0, 'dynamic model', 1),
+                (2, 0.05, 0.5, 72, 128, 'hamming', 0, 'train', 0, 0, 'brain', 1),
+                (3, 0.05, 0.5, 36, 64, 'hamming', 1, 'train', 0, 0, 'brain', 1),
+                (4, 0.03, 0.5, 36, 64, 'hamming', 0, 'train', 0, 0, 'brain', 1),
+                (5, 0.05, 0.5, 36, 64, 'hamming', 0, 'all', 1, 0, 'brain', 1),
+                (6, 0.05, 0.5, 36, 64, 'hamming', 0, 'train', 1, 1, 'brain', 1),
+                (7, 0.05, 0.5, 36, 64, 'hamming', 1, 'train', 1, 0, 'brain', 1),
+                (8, 0.05, 0.5, 36, 64, 'hamming', 0, 'train', 1, 0, 'dynamic model', 1),
+                (9, 0.05, 0.5, 36, 64, 'hamming', 0, 'train', 1, 0, 'brain', 1),
+                (10, 0.05, 0.1, 36, 64, 'hamming', 0, 'train', 1, 0, 'brain', 1),
+                (11, 0.05, 0.2, 36, 64, 'hamming', 0, 'train', 1, 0, 'brain', 1),
+                (12, 0.05, 0.3, 36, 64, 'hamming', 0, 'train', 1, 0, 'brain', 1),
+                (13, 0.05, 0.4, 36, 64, 'hamming', 0, 'train', 1, 0, 'brain', 1),
+                ]
 
 
 def process_frame(preproc_key, frame):
@@ -548,6 +595,8 @@ class InputResponse(dj.Computed, FilterMixin):
                            for i, trial_key in enumerate(compress(trial_keys, valid))])
 
     def compute_data(self, key):
+        preproc_params = (Preprocessing & key).fetch1()
+
         key = dict((self & key).fetch1(dj.key), **key)
         log.info('Computing dataset for\n' + pformat(key, indent=20))
 
@@ -578,7 +627,7 @@ class InputResponse(dj.Computed, FilterMixin):
         types = types.astype(str)
 
         # gamma correction
-        if (Preprocessing & key).fetch1('gamma'):
+        if preproc_params['gamma']:
             log.info('Gamma correcting images.')
             from staticnet_analyses import multi_mei
 
@@ -692,25 +741,69 @@ class InputResponse(dj.Computed, FilterMixin):
         def run_stats_input(selector, types, ix, axis=None, per_input=False):
             ret = {}
             for t in np.unique(types):
+                assert t == 'stimulus.Frame', 'input statistics calculation has not been implemented for stimulus types other than stimulus.Frame!'
+
                 if not np.any(ix & (types == t)):
                     continue
                 data = selector(ix & (types == t))
 
+                input_rel = stimulus.Frame * trials & [{'tier': t} for t in np.unique(tiers[ix])]
+                if len(input_rel & [{'image_class': ic} for ic in MASKED_CLASSES]) == 0: # no masked images, all full-field
+                    input_mean = data.mean(axis=axis).astype(np.float32) 
+                                if not per_input
+                                else data.mean(axis=(-1, -2)).mean().astype(np.float32)
+                    input_std = data.std(axis=axis, ddof=1).astype(np.float32) 
+                                if not per_input
+                                else data.std(axis=(-1, -2)).mean().astype(np.float32)
+                else: # at least one masked image_class
+                    assert prepare_params['stats_per_input'], 'statistics has to be computed per input when inputs contain masked image classes!'
+
+                    input_classes = (dj.U('image_class') & input_rel).fetch('image_class')
+                    input_masks, input_frames = [], []
+                    for c in input_classes:
+                        if c in MASKED_CLASSES: 
+                            if c in MEI_CLASSES:
+                                frames, masks = [], []
+                                stim_tables = (MaskedClassLUT & {'image_class': c}).get_stim_table()
+                                for table in stim_tables:
+                                    # neuron-specific masks
+                                    fs, ms = (base.MEIMask * table * train_rel & {'image_class': c}).fetch('frame', 'mask')
+                                    frames.extend(fs)
+                                    masks.extend(ms)
+                            else:
+                                raise NotImplementedError('Statistics for non-MEI masked images not implemented yet!')
+                        elif c in FF_CLASSES:
+                            frames = (stimulus.Frame * trials & {'image_class': c}).fetch('frame')
+                            masks = np.ones_like(np.stack(frames))  # create a mask of all ones for full-field images
+                        else:
+                            raise ValueError('An input has to belong to either a full-field or a masked image class!')
+                        input_frames.append(np.stack(frames))
+                        input_masks.append(np.stack(masks))
+                    input_frames = np.vstack(input_frames)
+                    input_masks = np.vstack(input_masks)
+
+                    # Compute mean and std of within the mask for each image, and then average across images
+                    means, stds = [], []
+                    for m, i in zip(input_masks, input_frames):
+                        mean = (i * m).sum(axis=(-1, -2), keepdims=True) / m.sum()
+                        std = np.sqrt(np.sum(((i - mean) ** 2) * m, axis=(-1, -2), keepdims=True) / m.sum())
+                        means.append(mean)
+                        stds.append(std)
+                    input_mean = np.mean(means).astype(np.float32)
+                    input_std = np.mean(stds).astype(np.float32)
+
                 ret[t] = dict(
-                    mean=data.mean(axis=axis).astype(np.float32) 
-                         if not per_input
-                         else data.mean(axis=(-1, -2)).mean().astype(np.float32),
-                    std=data.std(axis=axis, ddof=1).astype(np.float32) 
-                        if not per_input
-                        else data.std(axis=(-1, -2)).mean().astype(np.float32),
+                    mean=input_mean,
+                    std=input_std,
                     min=data.min(axis=axis).astype(np.float32),
                     max=data.max(axis=axis).astype(np.float32),
                     median=np.median(data, axis=axis).astype(np.float32)
                 )
+
             data = selector(ix)
             ret['all'] = dict(
-                mean=data.mean(axis=axis).astype(np.float32),
-                std=data.std(axis=axis, ddof=1).astype(np.float32),
+                mean=input_mean,
+                std=input_std,
                 min=data.min(axis=axis).astype(np.float32),
                 max=data.max(axis=axis).astype(np.float32),
                 median=np.median(data, axis=axis).astype(np.float32)
@@ -721,7 +814,8 @@ class InputResponse(dj.Computed, FilterMixin):
         log.info('Computing statistics on training dataset')
         response_statistics = run_stats(lambda ix: responses[ix], types, tiers == 'train', axis=0)
 
-        input_statistics = run_stats(lambda ix: images[ix], types, tiers == 'train')
+        ix = np.arange(len(tiers)) if preproc_params['input_stats'] == 'all' else tiers == preproc_params['input_stats']
+        input_statistics = run_stats_input(lambda ix: images[ix], types, ix, axis=0, preproc_params['stats_per_input']) 
 
         statistics = dict(
             images=input_statistics,
