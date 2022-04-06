@@ -112,6 +112,8 @@ class Tier(dj.Lookup):
     @property
     def contents(self):
         yield from zip(["train", "test", "validation", "test_mei"])
+        # * NOTE: test_mei is special tier assigned to random MEIs (selected from previous datasets) repetitively presented
+        # in imagenet scans to test model performance specifically in the MEI domain
 
 
 @schema
@@ -740,6 +742,8 @@ class InputResponse(dj.Computed, FilterMixin):
             )
             return ret
 
+        # NOTE: If per_input=True or the inputs contain at least one masked image, population standard deviation is reported; 
+        # otherwise sample standard deviation id reported. This is an arbitrary choice in order to stay compatible with existing data.
         def run_stats_input(selector, types, ix, axis=None, per_input=False):
             ret = {}
             for t in np.unique(types):
@@ -754,7 +758,7 @@ class InputResponse(dj.Computed, FilterMixin):
                     input_mean = data.mean(axis=axis).astype(np.float32) if not per_input else data.mean(axis=(-1, -2)).mean().astype(np.float32)
                     input_std = data.std(axis=axis, ddof=1).astype(np.float32) if not per_input else data.std(axis=(-1, -2)).mean().astype(np.float32)
                 else: # at least one masked image_class
-                    assert prepare_params['stats_per_input'], 'statistics has to be computed per input when inputs contain masked image classes!'
+                    assert preproc_params['stats_per_input'], 'statistics has to be computed per input when inputs contain masked image classes!'
 
                     input_classes = (dj.U('image_class') & input_rel).fetch('image_class')
                     input_masks, input_frames = [], []
@@ -765,7 +769,7 @@ class InputResponse(dj.Computed, FilterMixin):
                                 stim_tables = (MaskedClassLUT & {'image_class': c}).get_stim_table()
                                 for table in stim_tables:
                                     # neuron-specific masks
-                                    fs, ms = (base.MEIMask * table * train_rel & {'image_class': c}).fetch('frame', 'mask')
+                                    fs, ms = (base.MEIMask * table * input_rel & {'image_class': c}).fetch('frame', 'mask')
                                     frames.extend(fs)
                                     masks.extend(ms)
                             else:
