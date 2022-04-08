@@ -112,6 +112,8 @@ class Tier(dj.Lookup):
     @property
     def contents(self):
         yield from zip(["train", "test", "validation", "test_mei"])
+        # * NOTE: test_mei is special tier assigned to random MEIs (selected from previous datasets) repetitively presented
+        # in imagenet scans to test model performance specifically in the MEI domain
 
 
 @schema
@@ -344,7 +346,7 @@ class Preprocessing(dj.Lookup):
     filter           : varchar(24)  # filter type for window extraction
     gamma            : boolean      # whether to convert images to luminance values rather than pixel intensities
     linear_mon       : boolean      # whether the monitor has been linearized (i.e. pixel and luminance space form a linear relationship)
-    input_stats      : varchar(16)  # input dataset used for computing statistics and normalization, options include 'train', 'validation', 'test', and 'all'
+    norm_tier        : varchar(16)  # the tier(s) used for computing statistics and normalizing data, options include 'train', 'validation', 'test', and 'all'
     stats_per_input  : boolean      # whether to compute stats of each individual input and then average
     data_source      : varchar(16)  # source of the input-response dataset, options include 'brain' or certain type of digital twin 
     gt_availability  : boolean      # whether groundtruth in vivo response is available
@@ -354,7 +356,7 @@ class Preprocessing(dj.Lookup):
                 (2, 0.05, 0.5, 72, 128, 'hamming', 0, 'train', 0, 0, 'brain', 1),
                 (3, 0.05, 0.5, 36, 64, 'hamming', 1, 'train', 0, 0, 'brain', 1),
                 (4, 0.03, 0.5, 36, 64, 'hamming', 0, 'train', 0, 0, 'brain', 1),
-                (5, 0.05, 0.5, 36, 64, 'hamming', 0, 'all', 1, 0, 'brain', 1),
+                (5, 0.05, 0.5, 36, 64, 'hamming', 0, 'all', 1, 0, 'brain', 1), # BUGGY: norm_tier = 'all' was used only for input images, norm_tier = 'train' for responses and behavioral data
                 (6, 0.05, 0.5, 36, 64, 'hamming', 0, 'train', 1, 1, 'brain', 1),
                 (7, 0.05, 0.5, 36, 64, 'hamming', 1, 'train', 1, 0, 'brain', 1),
                 (8, 0.05, 0.5, 36, 64, 'hamming', 0, 'train', 1, 0, 'dynamic model', 1),
@@ -363,6 +365,7 @@ class Preprocessing(dj.Lookup):
                 (11, 0.05, 0.2, 36, 64, 'hamming', 0, 'train', 1, 0, 'brain', 1),
                 (12, 0.05, 0.3, 36, 64, 'hamming', 0, 'train', 1, 0, 'brain', 1),
                 (13, 0.05, 0.4, 36, 64, 'hamming', 0, 'train', 1, 0, 'brain', 1),
+                (14, 0.05, 0.5, 36, 64, 'hamming', 0, 'test', 1, 0, 'brain', 1), # only useful for dynamic scans including static oracles (so the only existing tier is 'test')
                 ]
 
 
@@ -597,10 +600,9 @@ class InputResponse(dj.Computed, FilterMixin):
                            for i, trial_key in enumerate(compress(trial_keys, valid))])
 
     def compute_data(self, key):
-        preproc_params = (Preprocessing & key).fetch1()
-
         key = dict((self & key).fetch1(dj.key), **key)
         log.info('Computing dataset for\n' + pformat(key, indent=20))
+        preproc_params = (Preprocessing & key).fetch1()
 
         # meso or reso?
         pipe = (fuse.ScanDone() * StaticScan() & key).fetch1('pipe')
@@ -740,6 +742,8 @@ class InputResponse(dj.Computed, FilterMixin):
             )
             return ret
 
+        # NOTE: If per_input=True or the inputs contain at least one masked image, population standard deviation is reported; 
+        # otherwise sample standard deviation id reported. This is an arbitrary choice in order to stay compatible with existing data.
         def run_stats_input(selector, types, ix, axis=None, per_input=False):
             ret = {}
             for t in np.unique(types):
@@ -754,7 +758,7 @@ class InputResponse(dj.Computed, FilterMixin):
                     input_mean = data.mean(axis=axis).astype(np.float32) if not per_input else data.mean(axis=(-1, -2)).mean().astype(np.float32)
                     input_std = data.std(axis=axis, ddof=1).astype(np.float32) if not per_input else data.std(axis=(-1, -2)).mean().astype(np.float32)
                 else: # at least one masked image_class
-                    assert prepare_params['stats_per_input'], 'statistics has to be computed per input when inputs contain masked image classes!'
+                    assert preproc_params['stats_per_input'], 'statistics has to be computed per input when inputs contain masked image classes!'
 
                     input_classes = (dj.U('image_class') & input_rel).fetch('image_class')
                     input_masks, input_frames = [], []
@@ -765,7 +769,7 @@ class InputResponse(dj.Computed, FilterMixin):
                                 stim_tables = (MaskedClassLUT & {'image_class': c}).get_stim_table()
                                 for table in stim_tables:
                                     # neuron-specific masks
-                                    fs, ms = (base.MEIMask * table * train_rel & {'image_class': c}).fetch('frame', 'mask')
+                                    fs, ms = (base.MEIMask * table * input_rel & {'image_class': c}).fetch('frame', 'mask')
                                     frames.extend(fs)
                                     masks.extend(ms)
                             else:
@@ -809,10 +813,9 @@ class InputResponse(dj.Computed, FilterMixin):
             return ret
 
         # --- compute statistics
-        log.info('Computing statistics on training dataset')
-        response_statistics = run_stats(lambda ix: responses[ix], types, tiers == 'train', axis=0)
-
-        ix = np.arange(len(tiers)) if preproc_params['input_stats'] == 'all' else tiers == preproc_params['input_stats']
+        log.info('Computing statistics on {} dataset(s)'.format(preproc_params['norm_tier']))
+        ix = np.arange(len(tiers)) if preproc_params['norm_tier'] == 'all' else tiers == preproc_params['norm_tier']
+        response_statistics = run_stats(lambda ix: responses[ix], types, ix, axis=0)
         input_statistics = run_stats_input(lambda ix: images[ix], types, ix, axis=0, per_input=preproc_params['stats_per_input']) 
 
         statistics = dict(
@@ -822,8 +825,8 @@ class InputResponse(dj.Computed, FilterMixin):
 
         if include_behavior:
             # ---- include statistics
-            behavior_statistics = run_stats(lambda ix: behavior[ix], types, tiers == 'train', axis=0)
-            eye_statistics = run_stats(lambda ix: pupil_center[ix], types, tiers == 'train', axis=0)
+            behavior_statistics = run_stats(lambda ix: behavior[ix], types, ix, axis=0)
+            eye_statistics = run_stats(lambda ix: pupil_center[ix], types, ix, axis=0)
 
             statistics['behavior'] = behavior_statistics
             statistics['pupil_center'] = eye_statistics
