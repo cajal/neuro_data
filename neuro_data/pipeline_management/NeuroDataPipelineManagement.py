@@ -8,7 +8,7 @@ pipeline_anatomy = dj.create_virtual_module('pipeline_anatomy', 'pipeline_anatom
 pipeline_fuse = dj.create_virtual_module('pipeline_fuse', 'pipeline_fuse')
 pipeline_stimulus = dj.create_virtual_module('pipeline_stimulus', 'pipeline_stimulus')
 
-PREPROC_ID = 14
+PREPROC_ID = 0
 
 class NeuroDataPipelineManagement():
     def __init__(self):
