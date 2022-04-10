@@ -10,9 +10,6 @@ from tqdm import tqdm
 
 from .. import logger as log
 
-fuse = dj.create_virtual_module('fuse', 'pipeline_fuse')
-stimulus = dj.create_virtual_module('stimulus', 'pipeline_stimulus')
-
 
 def list_hash(values):
     """
