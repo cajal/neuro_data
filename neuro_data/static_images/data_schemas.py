@@ -179,15 +179,22 @@ class ImageNetSplit(dj.Lookup):
             print('Static images were not shown for this scan')
 
         # Skip fill if all frames have already been inserted
-        all_frames = frame_table * stimulus.Trial & scan_key
+        valid_rel = [imagenet.Album.Oracle & imagenet.ValidAlbum, imagenet.Album.Single & imagenet.ValidAlbum]
+        all_frames = frame_table * stimulus.Trial & scan_key & IMAGENET_CLASSES & valid_rel
         unique_frames = dj.U('image_id', 'image_class').aggr(all_frames, repeats='COUNT(*)')
         if len(self & unique_frames) == len(unique_frames):            
-            print('Fill skipped: all frames have already been assigned tiers.')
+            print('Fill skipped: all imagnet frames have already been assigned tiers.')
+
+            # Hack: Assign tier for MEI test images if there exists any
+            unique_mei_frames = dj.U('image_id', 'image_class').aggr(frame_table * stimulus.Trial & scan_key & [{'image_class':ic} for ic in MEI_CLASSES], repeats='COUNT(*)')
+            if len(unique_mei_frames) > 0:
+                image_ids, image_classes = (unique_mei_frames & 'repeats > {}'.format(n)).fetch('image_id', 'image_class')
+                print('Inserting {} mei test images'.format(len(image_ids)))
+                self.insert([{'image_id': iid, 'image_class': ic, 'tier': 'test_mei'} for iid, ic in
+                        zip(image_ids, image_classes)], skip_duplicates=True)
         else:
             # Get all valid imagenet images in this scan
-            valid_rel = [imagenet.Album.Oracle & imagenet.ValidAlbum, imagenet.Album.Single & imagenet.ValidAlbum]
-            all_frames = frame_table * stimulus.Trial & scan_key & IMAGENET_CLASSES & valid_images
-            image_ids, image_classes = (unique_frames & valid_rel).fetch('image_id', 'image_class', order_by='repeats DESC')
+            image_ids, image_classes = unique_frames.fetch('image_id', 'image_class', order_by='repeats DESC')
             num_frames = len(image_ids)
             # * NOTE: this fetches all oracle images first and the rest in a "random" order;
             # we use that random order to make the validation/training division below.
@@ -198,7 +205,7 @@ class ImageNetSplit(dj.Lookup):
             num_oracles = len(unique_frames & 'repeats > {}'.format(n))  # repeats
             if num_oracles == 0:
                 raise ValueError('Could not find repeated frames to use for oracle.')
-            if len(self & (unique_frames & 'repeats > {}'.format(n)) & 'tier != "test"') != 0: # check if there exists any oracle image that have been assigned in a non-test set
+            if len(self & (unique_frames & 'repeats > {}'.format(n)).proj() & 'tier != "test"') != 0: # check if there exists any oracle image that have been assigned in a non-test set
                 raise ValueError('Overlap between test set and train/validation set!')
 
             # Compute number of validation examples
@@ -221,6 +228,7 @@ class ImageNetSplit(dj.Lookup):
             unique_mei_frames = dj.U('image_id', 'image_class').aggr(frame_table * stimulus.Trial & scan_key & [{'image_class':ic} for ic in MEI_CLASSES], repeats='COUNT(*)')
             if len(unique_mei_frames) > 0:
                 image_ids, image_classes = (unique_mei_frames & 'repeats > {}'.format(n)).fetch('image_id', 'image_class')
+                print('Inserting {} mei test images'.format(len(image_ids)))
                 self.insert([{'image_id': iid, 'image_class': ic, 'tier': 'test_mei'} for iid, ic in
                         zip(image_ids, image_classes)], skip_duplicates=True)
 
@@ -286,6 +294,8 @@ class ConditionTier(dj.Computed):
     def make(self, key):
         log.info(80 * '-')
         log.info('Processing ' + pformat(key))
+        valid_rel = [imagenet.Album.Oracle & imagenet.ValidAlbum, imagenet.Album.Single & imagenet.ValidAlbum]
+
         # count the number of distinct conditions presented for each one of three stimulus types:
         # "stimulus.Frame","stimulus.MonetFrame", "stimulus.TrippyFrame"
         conditions = dj.U('stimulus_type').aggr(stimulus.Condition() & (stimulus.Trial() & key),
@@ -298,7 +308,7 @@ class ConditionTier(dj.Computed):
 
                 # deal with ImageNet frames first
                 log.info('Inserting assignment from ImageNetSplit')
-                targets = StaticScan * frame_table * ImageNetSplit & (stimulus.Trial & key) & IMAGENET_CLASSES
+                targets = StaticScan * frame_table * ImageNetSplit & (stimulus.Trial & key) & IMAGENET_CLASSES & key
                 print('Inserting {} imagenet conditions!'.format(len(targets)))
                 self.insert(targets, ignore_extra_fields=True)
 
@@ -307,13 +317,17 @@ class ConditionTier(dj.Computed):
                 self.insert(StaticScan * frame_table * assignment & (stimulus.Trial & key), ignore_extra_fields=True)
 
                 # make sure that all frames were assigned
-                remaining = (stimulus.Trial * frame_table & key) - self
+                remaining = (stimulus.Trial * frame_table & key & valid_rel) - self
                 assert len(remaining) == 0, 'There are still unprocessed Frames'
                 continue
 
             log.info('Checking condition {stimulus_type} (n={count})'.format(**cond))
-            frames = (stimulus.Condition() * StaticScan() & key & cond).aggr(stimulus.Trial(), repeats="count(*)",
-                                                                             test='count(*) > 4')
+            if cond['stimulus_type'] == 'stimulus.Frame':
+                frames = (stimulus.Condition() * StaticScan() & key & cond).aggr(stimulus.Trial * frame_table & valid_rel, repeats="count(*)",
+                                                                            test='count(*) > 4')
+            else:
+                frames = (stimulus.Condition() * StaticScan() & key & cond).aggr(stimulus.Trial, repeats="count(*)",
+                                                                             test='count(*) > 4')                                                                
             self.check_train_test_split(frames, cond)
 
             m = len(frames)
@@ -351,21 +365,21 @@ class Preprocessing(dj.Lookup):
     data_source      : varchar(16)  # source of the input-response dataset, options include 'brain' or certain type of digital twin 
     gt_availability  : boolean      # whether groundtruth in vivo response is available
     """
-    contents = [(0, 0.05, 0.5, 36, 64, 'hamming', 0, 'train', 0, 0, 'brain', 1),
-                (1, 0.05, 0.5, 36, 64, 'hamming', 0, 'train', 0, 0, 'dynamic model', 1),
-                (2, 0.05, 0.5, 72, 128, 'hamming', 0, 'train', 0, 0, 'brain', 1),
-                (3, 0.05, 0.5, 36, 64, 'hamming', 1, 'train', 0, 0, 'brain', 1),
-                (4, 0.03, 0.5, 36, 64, 'hamming', 0, 'train', 0, 0, 'brain', 1),
-                (5, 0.05, 0.5, 36, 64, 'hamming', 0, 'all', 1, 0, 'brain', 1), # BUGGY: norm_tier = 'all' was used only for input images, norm_tier = 'train' for responses and behavioral data
-                (6, 0.05, 0.5, 36, 64, 'hamming', 0, 'train', 1, 1, 'brain', 1),
-                (7, 0.05, 0.5, 36, 64, 'hamming', 1, 'train', 1, 0, 'brain', 1),
-                (8, 0.05, 0.5, 36, 64, 'hamming', 0, 'train', 1, 0, 'dynamic model', 1),
-                (9, 0.05, 0.5, 36, 64, 'hamming', 0, 'train', 1, 0, 'brain', 1),
-                (10, 0.05, 0.1, 36, 64, 'hamming', 0, 'train', 1, 0, 'brain', 1),
-                (11, 0.05, 0.2, 36, 64, 'hamming', 0, 'train', 1, 0, 'brain', 1),
-                (12, 0.05, 0.3, 36, 64, 'hamming', 0, 'train', 1, 0, 'brain', 1),
-                (13, 0.05, 0.4, 36, 64, 'hamming', 0, 'train', 1, 0, 'brain', 1),
-                (14, 0.05, 0.5, 36, 64, 'hamming', 0, 'test', 1, 0, 'brain', 1), # only useful for dynamic scans including static oracles (so the only existing tier is 'test')
+    contents = [(0, 0.05, 0.5, 36, 64, 'hamming', 0, 0, 'train', 0, 'brain', 1),
+                (1, 0.05, 0.5, 36, 64, 'hamming', 0, 0, 'train', 0, 'dynamic model', 1),
+                (2, 0.05, 0.5, 72, 128, 'hamming', 0, 0, 'train', 0, 'brain', 1),
+                (3, 0.05, 0.5, 36, 64, 'hamming', 1, 0, 'train', 0, 'brain', 1),
+                (4, 0.03, 0.5, 36, 64, 'hamming', 0, 0, 'train', 0, 'brain', 1),
+                (5, 0.05, 0.5, 36, 64, 'hamming', 0, 0, 'all', 1, 'brain', 1),  # BUGGY: norm_tier = 'all' was used only for input images, norm_tier = 'train' for responses and behavioral data
+                (6, 0.05, 0.5, 36, 64, 'hamming', 0, 1, 'train', 1, 'brain', 1),
+                (7, 0.05, 0.5, 36, 64, 'hamming', 1, 0, 'train', 1, 'brain', 1),
+                (8, 0.05, 0.5, 36, 64, 'hamming', 0, 0, 'train', 1, 'dynamic model', 1),
+                (9, 0.05, 0.5, 36, 64, 'hamming', 0, 0, 'train', 1, 'brain', 1),
+                (10, 0.05, 0.1, 36, 64, 'hamming', 0, 0, 'train', 1, 'brain', 1),
+                (11, 0.05, 0.2, 36, 64, 'hamming', 0, 0, 'train', 1, 'brain', 1),
+                (12, 0.05, 0.3, 36, 64, 'hamming', 0, 0, 'train', 1, 'brain', 1),
+                (13, 0.05, 0.4, 36, 64, 'hamming', 0, 0, 'train', 1, 'brain', 1),
+                (14, 0.05, 0.5, 36, 64, 'hamming', 0, 0, 'test', 1, 'brain', 1) # only useful for dynamic scans including static oracles (so the only existing tier is 'test')
                 ]
 
 
