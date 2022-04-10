@@ -4,12 +4,6 @@ import pandas as pd
 import numpy as np
 from neuro_data.static_images.data_schemas import StaticScan
 
-experiment = dj.create_virtual_module("experiment", "pipeline_experiment")
-fuse = dj.create_virtual_module("fuse", "pipeline_fuse")
-meso = dj.create_virtual_module("meso", "pipeline_meso")
-shared = dj.create_virtual_module("shared", "pipeline_shared")
-anatomy = dj.create_virtual_module("anatomy", "pipeline_anatomy")
-stimulus = dj.create_virtual_module("stimulus", "pipeline_stimulus")
 dv_nn6_architecture = dj.create_virtual_module(
     "dv_nn6_architecture", "dv_nns_v6_architecture"
 )
@@ -58,6 +52,7 @@ class DvModelConfig(ConfigBase, dj.Lookup):
             )
 
         def unit_keys(self, dynamic_scan):
+            fuse = dj.create_virtual_module("fuse", "pipeline_fuse")
             dynamic_scan, n_units = (dv_nn6_scan.Scan & dynamic_scan & self).fetch1(
                 dj.key, "n_units"
             )
@@ -80,6 +75,7 @@ class DvModelConfig(ConfigBase, dj.Lookup):
             return unit_keys
 
         def responses(self, dynamic_scan, trial_idx, condition_hashes):
+            stimulus = dj.create_virtual_module("stimulus", "pipeline_stimulus")
             assert len(trial_idx) == len(condition_hashes)
             cond_df = pd.DataFrame({"condition_hash": condition_hashes})
             resp_key_df = pd.DataFrame(
@@ -156,6 +152,7 @@ class DvScanInfo(dj.Computed):
 
     @property
     def key_source(self):
+        fuse = dj.create_virtual_module("fuse", "pipeline_fuse")
         keys = fuse.ScanDone * DvModelConfig
         key = [
             dv_nn6_models() * DvModelConfig.Nn6 * dv_nn6_scan.Scan,
@@ -169,7 +166,7 @@ class DvScanInfo(dj.Computed):
         ]
         self.insert1(dict(key, n_units=len(unit_keys)))
 
-        self.Unit.insert(
+        self.Unit().insert(
             [dict(unit_key, response_index=i) for i, unit_key in enumerate(unit_keys)]
         )
 
