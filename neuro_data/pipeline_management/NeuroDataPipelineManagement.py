@@ -2,7 +2,7 @@ import numpy as np
 import datajoint as dj
 
 
-from neuro_data.static_images.data_schemas import StaticScanCandidate, StaticScan, ImageNetSplit, ConditionTier, Frame, InputResponse, Eye, Treadmill, StaticMultiDataset, StaticMultiDatasetGroupAssignment, ExcludedTrial
+from neuro_data.static_images.data_schemas import StaticScanCandidate, StaticScan, ImageNetSplit, ConditionTier, Frame, InputResponse, Eye, Treadmill, StaticMultiDataset, StaticMultiDatasetGroupAssignment, ExcludedTrial, StaticMultiDataset
 
 pipeline_anatomy = dj.create_virtual_module('pipeline_anatomy', 'pipeline_anatomy')
 pipeline_fuse = dj.create_virtual_module('pipeline_fuse', 'pipeline_fuse')
@@ -179,7 +179,7 @@ class NeuroDataPipelineManagement():
             if StaticMultiDatasetGroupAssignment & target_input_response_key:
                 print("[NeuroData.Static Populate]: Scan is already in StaticMultiDatasetGroupAssignment, skipping")
             else:
-                target_input_response_key['group_id'] = StaticMultiDatasetGroupAssignment().fetch('group_id').max() + 1
+                target_input_response_key['group_id'] = StaticMultiDataset.fetch('group_id').max() + 1
                 target_input_response_key['description'] = 'Inserted from PipelineManagement'
                 StaticMultiDatasetGroupAssignment.insert1(target_input_response_key)
                 
