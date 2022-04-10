@@ -2,7 +2,7 @@ import datajoint as dj
 from neuro_data.utils.config import ConfigBase
 import pandas as pd
 import numpy as np
-from neuro_data.static_images.data_schemas import StaticScan
+from neuro_data.static_images.data_schemas import StaticScan, schema
 
 dv_nn6_architecture = dj.create_virtual_module(
     "dv_nn6_architecture", "dv_nns_v6_architecture"
@@ -16,7 +16,6 @@ dv_scan1_scan_dataset = dj.create_virtual_module(
 )
 dv_scan1_scan = dj.create_virtual_module("dv_scan1_scan", "dv_scans_v1_scan")
 
-schema = dj.schema("neurodata_static")
 
 
 def dv_nn6_models():
