@@ -365,21 +365,21 @@ class Preprocessing(dj.Lookup):
     data_source      : varchar(16)  # source of the input-response dataset, options include 'brain' or certain type of digital twin 
     gt_availability  : boolean      # whether groundtruth in vivo response is available
     """
-    contents = [(0, 0.05, 0.5, 36, 64, 'hamming', 0, 'train', 0, 0, 'brain', 1),
-                (1, 0.05, 0.5, 36, 64, 'hamming', 0, 'train', 0, 0, 'dynamic model', 1),
-                (2, 0.05, 0.5, 72, 128, 'hamming', 0, 'train', 0, 0, 'brain', 1),
-                (3, 0.05, 0.5, 36, 64, 'hamming', 1, 'train', 0, 0, 'brain', 1),
-                (4, 0.03, 0.5, 36, 64, 'hamming', 0, 'train', 0, 0, 'brain', 1),
-                (5, 0.05, 0.5, 36, 64, 'hamming', 0, 'all', 1, 0, 'brain', 1), # BUGGY: norm_tier = 'all' was used only for input images, norm_tier = 'train' for responses and behavioral data
-                (6, 0.05, 0.5, 36, 64, 'hamming', 0, 'train', 1, 1, 'brain', 1),
-                (7, 0.05, 0.5, 36, 64, 'hamming', 1, 'train', 1, 0, 'brain', 1),
-                (8, 0.05, 0.5, 36, 64, 'hamming', 0, 'train', 1, 0, 'dynamic model', 1),
-                (9, 0.05, 0.5, 36, 64, 'hamming', 0, 'train', 1, 0, 'brain', 1),
-                (10, 0.05, 0.1, 36, 64, 'hamming', 0, 'train', 1, 0, 'brain', 1),
-                (11, 0.05, 0.2, 36, 64, 'hamming', 0, 'train', 1, 0, 'brain', 1),
-                (12, 0.05, 0.3, 36, 64, 'hamming', 0, 'train', 1, 0, 'brain', 1),
-                (13, 0.05, 0.4, 36, 64, 'hamming', 0, 'train', 1, 0, 'brain', 1),
-                (14, 0.05, 0.5, 36, 64, 'hamming', 0, 'test', 1, 0, 'brain', 1), # only useful for dynamic scans including static oracles (so the only existing tier is 'test')
+    contents = [(0, 0.05, 0.5, 36, 64, 'hamming', 0, 0, 'train', 0, 'brain', 1),
+                (1, 0.05, 0.5, 36, 64, 'hamming', 0, 0, 'train', 0, 'dynamic model', 1),
+                (2, 0.05, 0.5, 72, 128, 'hamming', 0, 0, 'train', 0, 'brain', 1),
+                (3, 0.05, 0.5, 36, 64, 'hamming', 1, 0, 'train', 0, 'brain', 1),
+                (4, 0.03, 0.5, 36, 64, 'hamming', 0, 0, 'train', 0, 'brain', 1),
+                (5, 0.05, 0.5, 36, 64, 'hamming', 0, 0, 'all', 1, 'brain', 1),  # BUGGY: norm_tier = 'all' was used only for input images, norm_tier = 'train' for responses and behavioral data
+                (6, 0.05, 0.5, 36, 64, 'hamming', 0, 1, 'train', 1, 'brain', 1),
+                (7, 0.05, 0.5, 36, 64, 'hamming', 1, 0, 'train', 1, 'brain', 1),
+                (8, 0.05, 0.5, 36, 64, 'hamming', 0, 0, 'train', 1, 'dynamic model', 1),
+                (9, 0.05, 0.5, 36, 64, 'hamming', 0, 0, 'train', 1, 'brain', 1),
+                (10, 0.05, 0.1, 36, 64, 'hamming', 0, 0, 'train', 1, 'brain', 1),
+                (11, 0.05, 0.2, 36, 64, 'hamming', 0, 0, 'train', 1, 'brain', 1),
+                (12, 0.05, 0.3, 36, 64, 'hamming', 0, 0, 'train', 1, 'brain', 1),
+                (13, 0.05, 0.4, 36, 64, 'hamming', 0, 0, 'train', 1, 'brain', 1),
+                (14, 0.05, 0.5, 36, 64, 'hamming', 0, 0, 'test', 1, 'brain', 1) # only useful for dynamic scans including static oracles (so the only existing tier is 'test')
                 ]
 
 
