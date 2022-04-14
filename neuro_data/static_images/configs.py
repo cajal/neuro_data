@@ -228,16 +228,20 @@ class AreaLayerRawMixin(StimulusTypeMixin):
                                               stimulus_types=stimulus_types,
                                               Sampler=Sampler)
 
-        log.info('Subsampling to layer {} and area(s) "{}"'.format(key['layer'],
+        log.info('Subsampling to layer {} and area(s) "{}"'.format(key.get('layer') or key['brain_layers'],
                                                                    key.get('brain_area') or key['brain_areas']))
         for readout_key, dataset in datasets.items():
             layers = dataset.neurons.layer
             areas = dataset.neurons.area
 
-            layer_idx = (layers == key['layer'])
+            desired_layers = ([key['layer'], ] if 'layer' in key else
+                             (common_configs.BrainLayers.BrainLayer & key).fetch('layer'))
+            layer_idx = np.stack([layers == dl for dl in desired_layers]).any(axis=0)
+
             desired_areas = ([key['brain_area'], ] if 'brain_area' in key else
                              (common_configs.BrainAreas.BrainArea & key).fetch('brain_area'))
             area_idx = np.stack([areas == da for da in desired_areas]).any(axis=0)
+
             idx = np.where(layer_idx & area_idx)[0]
             if len(idx) == 0:
                 log.warning('Empty set of neurons. Deleting this key')
@@ -421,7 +425,7 @@ class DataConfig(ConfigBase, dj.Lookup):
                              ['images,responses', ''],
                              [True],
                              [True, False],
-                             ['L4', 'L2/3'],
+                             ['L4', 'L2/3', 'L6'],
                              ['V1', 'LM']):
                 yield dict(zip(self.heading.dependent_attributes, p))
 
@@ -463,6 +467,33 @@ class DataConfig(ConfigBase, dj.Lookup):
                              [True],
                              [True, False],
                              ['L4', 'L2/3'],
+                             ['all-unknown', 'all']):
+                yield dict(zip(self.heading.dependent_attributes, p))
+
+    class MultipleAreasMultipleLayers(dj.Part, AreaLayerRawMixin):
+        definition = """
+        -> master
+        ---
+        stats_source                : varchar(50)   # normalization source
+        stimulus_type               : varchar(50)   # type of stimulus
+        exclude                     : varchar(512)  # what inputs to exclude from normalization
+        normalize                   : bool          # whether to use a normalizer or not
+        normalize_per_image         : bool          # whether to normalize each input separately
+        -> common_configs.BrainLayers
+        -> common_configs.BrainAreas
+        """
+        def describe(self, key):
+            return ('{brain_areas} {brain_layers} on {stimulus_type}. normalize={normalize} on '
+                    '{stats_source} (except "{exclude}")').format(**key)
+
+        @property
+        def content(self):
+            for p in product(['all'],
+                             ['stimulus.Frame', '~stimulus.Frame'],
+                             ['images,responses', ''],
+                             [True],
+                             [True, False],
+                             ['all-unset', 'all'],
                              ['all-unknown', 'all']):
                 yield dict(zip(self.heading.dependent_attributes, p))
 
