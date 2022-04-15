@@ -198,7 +198,7 @@ class StimulusTypeMixin:
         return loaders
 
     def load_data(self, key, tier=None, batch_size=1, key_order=None,
-                  stimulus_types=None, Sampler=None):
+                  stimulus_types=None, Sampler=None, **kwargs):
         stimulus_types = key.pop('stimulus_type')
         exclude = key.pop('exclude').split(',')
         log.info('Loading {} dataset with tier={}'.format(
