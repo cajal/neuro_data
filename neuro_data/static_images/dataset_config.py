@@ -17,11 +17,11 @@ from .data_schemas import (
     StaticMultiDataset,
     StaticScan,
     schema,
+    stimulus,
+    base,
 )
 from .ds_pipe import DvScanInfo
 
-stimulus = dj.create_virtual_module("stimulus", "pipeline_stimulus")
-base = dj.create_virtual_module("base", "neurostatic_base")
 
 
 
