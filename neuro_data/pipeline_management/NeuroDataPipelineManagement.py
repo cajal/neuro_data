@@ -11,18 +11,17 @@ pipeline_stimulus = dj.create_virtual_module('pipeline_stimulus', 'pipeline_stim
 PREPROC_ID = 0
 
 class NeuroDataPipelineManagement():
-    def __init__(self):
+    def __init__(self, preproc_id=PREPROC_ID):
+        self.preproc_id = preproc_id
         pass
 
     @staticmethod
     def manually_insert_area_for_scan(target_scan, area):
         """
         Give a target_scan, it will label all neurons in there with the given area
-
         Args:
             target_scan (dict(animal_id, session, scan_idx)): A dict that contains the keys for a specific scan
             area (str): area name to override label all the neurons with
-
         Returns:
             None
         """
@@ -35,11 +34,9 @@ class NeuroDataPipelineManagement():
     def manually_insert_layer_for_scan(target_scan, layer):
         """
         Give a target_scan, it will label all neurons in there with the given layer
-
         Args:
             target_scan (dict(animal_id, session, scan_idx)): A dict that contains the keys for a specific scan
             layer (str): layer name to override label all the neurons with
-
         Returns:
             None
         """
@@ -48,18 +45,14 @@ class NeuroDataPipelineManagement():
             neuron_unit_key['layer'] = layer
             pipeline_anatomy.LayerMembership().insert1(neuron_unit_key, allow_direct_insert=True)
 
-    @staticmethod
-    def process_static_scans(target_scans):
+    def process_static_scans(self, target_scans):
         """
         Function that goes and check for every table that needs to be populate as well as provide an option
         to manaully populate AreaMembership and LayerMembership, assuming that all the neurons can be label the same Area and Layer
         if not, they the user should manually do it.
-
         Please refer to neuro_data/notebooks/pipeline_management notebook for an example
-
         Args:
             target_scans (list(dict(animal_id, session, scan_idx))): A list of dicts where each dicts contains the keys for a specific scan
-
         Returns:
             None
         """
@@ -159,11 +152,11 @@ class NeuroDataPipelineManagement():
             
             # Populate Frame
             print("[NeuroData.Static Populate]: Populating Frame:")
-            Frame.populate(dict(preproc_id = PREPROC_ID), ConditionTier & target_scan)
+            Frame.populate(dict(preproc_id = self.preproc_id), ConditionTier & target_scan)
 
             # Populate InputResponse
             print("[NeuroData.Static Populate]: Populating InputResponse:")
-            InputResponse().populate(target_scan_done_key, dict(preproc_id = PREPROC_ID))
+            InputResponse().populate(target_scan_done_key, dict(preproc_id = self.preproc_id))
 
             # Populate Eye
             print("[NeuroData.Static Populate]: Populating Eye:")
@@ -175,7 +168,7 @@ class NeuroDataPipelineManagement():
 
             # Insert Scan into StaticMultiDatasetGroupAssignment with whatever is the next highest_group_id
             print("[NeuroData.Static Populate]: Inserting Scan into StaticMultiDatasetGroupAssignment with next largest group_id:")
-            target_input_response_key = (InputResponse & target_scan & dict(preproc_id=PREPROC_ID)).fetch1('KEY')
+            target_input_response_key = (InputResponse & target_scan & dict(preproc_id=self.preproc_id)).fetch1('KEY')
             if StaticMultiDatasetGroupAssignment & target_input_response_key:
                 print("[NeuroData.Static Populate]: Scan is already in StaticMultiDatasetGroupAssignment, skipping")
             else:
@@ -188,17 +181,15 @@ class NeuroDataPipelineManagement():
             StaticMultiDataset().fill()
 
             print('[NeuroData.Static Populate]: Generating HDF5 File')
-            InputResponse().get_filename(dict(**target_scan, preproc_id = PREPROC_ID))
+            InputResponse().get_filename(dict(**target_scan, preproc_id = self.preproc_id))
 
             print('[PROCESSING COMPLETED FOR SCAN: ' + str(target_scan) + ']\n')
 
     def delete_scans_from_pipeline(self, target_scans):
         """
         Reverese what process_static_scans for the given target_scans
-
         Args:
             target_scans (list(dict(animal_id, session, scan_idx))): A list of dicts where each dicts contains the keys for a specific scan
-
         Returns:
             None
         """
