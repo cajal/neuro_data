@@ -24,7 +24,6 @@ stimulus = dj.create_virtual_module("stimulus", "pipeline_stimulus")
 base = dj.create_virtual_module("base", "neurostatic_base")
 
 
-
 @schema
 class InputConfig(ConfigBase, dj.Lookup):
     _config_type = "input"
@@ -373,6 +372,7 @@ class DatasetConfig(ConfigBase, dj.Lookup):
             dynamic_scan = (
                 DvScanInfo
                 & {
+                    **key,
                     "animal_id": key["animal_id"],
                     "session": key["dynamic_session"],
                     "scan_idx": key["dynamic_scan_idx"],
@@ -381,6 +381,7 @@ class DatasetConfig(ConfigBase, dj.Lookup):
             static_scan = (
                 StaticScan()
                 & {
+                    **key,
                     "animal_id": key["animal_id"],
                     "session": key["static_session"],
                     "scan_idx": key["static_scan_idx"],
@@ -457,6 +458,7 @@ class DatasetInputResponse(dj.Computed):
             **key,
             **input_response_key,
         }
+        print(f"Inserting {key} to InputResponse")
         InputResponse().insert1(
             key,
             allow_direct_insert=True,
