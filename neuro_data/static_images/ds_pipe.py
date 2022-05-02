@@ -2,7 +2,7 @@ import datajoint as dj
 from neuro_data.utils.config import ConfigBase
 import pandas as pd
 import numpy as np
-from neuro_data.static_images.data_schemas import StaticScan, schema
+from neuro_data.static_images.data_schemas import StaticScan, schema, stimulus, fuse
 
 dv_nn6_architecture = dj.create_virtual_module(
     "dv_nn6_architecture", "dv_nns_v6_architecture"
@@ -26,6 +26,19 @@ def dv_nn6_models():
     keys = dj.U("architecture_hash", "train_hash") * keys
     return keys.proj(dynamic_session="session", dynamic_scan_idx="scan_idx")
 
+
+dv_nn9_architecture = dj.create_virtual_module(
+    "dv_nn9_architecture", "dv_nns_v9_architecture"
+)
+dv_nn9_train = dj.create_virtual_module("dv_nn9_train", "dv_nns_v9_train")
+dv_nn9_model = dj.create_virtual_module("dv_nn9_model", "dv_nns_v9_model")
+dv_nn9_scan = dj.create_virtual_module("dv_nn9_scan", "dv_nns_v9_scan")
+dv_nn9_resp = dj.create_virtual_module("dv_nn9_resp", "dv_nns_v9_response")
+dv_scan3_scan_dataset = dj.create_virtual_module(
+    "dv_scan3_scan_dataset", "dv_scans_v3_scan_dataset"
+)
+dv_scan3_scan = dj.create_virtual_module("dv_scan3_scan", "dv_scans_v3_scan")
+dv_stim2_stimulus = dj.create_virtual_module('dv_stim2_stimulus', 'dv_stimuli_v2_stimulus')
 
 @schema
 class DvModelConfig(ConfigBase, dj.Lookup):
@@ -51,7 +64,6 @@ class DvModelConfig(ConfigBase, dj.Lookup):
             )
 
         def unit_keys(self, dynamic_scan):
-            fuse = dj.create_virtual_module("fuse", "pipeline_fuse")
             dynamic_scan, n_units = (dv_nn6_scan.Scan & dynamic_scan & self).fetch1(
                 dj.key, "n_units"
             )
@@ -74,7 +86,6 @@ class DvModelConfig(ConfigBase, dj.Lookup):
             return unit_keys
 
         def responses(self, dynamic_scan, trial_idx, condition_hashes):
-            stimulus = dj.create_virtual_module("stimulus", "pipeline_stimulus")
             assert len(trial_idx) == len(condition_hashes)
             cond_df = pd.DataFrame({"condition_hash": condition_hashes})
             resp_key_df = pd.DataFrame(
@@ -131,6 +142,127 @@ class DvModelConfig(ConfigBase, dj.Lookup):
                 & unique_unit_rel
             )
 
+    class Nn9(dj.Part):
+        definition = """
+        -> master
+        ---
+        -> dv_nn9_resp.ResponseDelay
+        -> dv_nn9_resp.ImageConfig
+        -> dv_nn9_resp.ImageResponseConfig
+        -> dv_nn9_model.InstanceConfig
+        -> dv_nn9_model.OutputConfig
+        -> dv_nn9_scan.ScanConfig
+        -> dv_nn9_scan.NnConfig
+        """
+
+        @property
+        def content(self):
+            return dj.U(*self.heading.secondary_attributes) & (
+                dv_nn9_scan.ScanModelInstance * dv_nn9_resp.ScanImageResponse
+            ) & (  # preblank = 5 msec
+                dv_nn9_resp.ImageResponseConfig().Lowpass() & 'pre_duration=5'
+            ) & (  # all unit & all dynamic clips
+                dv_nn9_scan.ScanConfig().Scan3() 
+                & dv_scan3_scan_dataset.UnitConfig().All()
+                & (
+                    dv_scan3_scan_dataset.TrialConfig().TrainSet() 
+                    & dv_stim2_stimulus.StimulusSetConfig().AllDynamic().proj(include_stimulus_set_hash='stimulus_set_hash')
+                    & dv_stim2_stimulus.StimulusSetConfig().OracleClip.proj(exclude_stimulus_set_hash='stimulus_set_hash')
+                )
+            )
+
+        def unit_keys(self, dynamic_scan):
+            dynamic_scan, n_units = (dv_nn9_scan.Scan & dynamic_scan & self).fetch1(
+                dj.key, "n_units")
+            units = (
+                self
+                * dv_nn9_scan.Scan.Unit
+                * dv_nn9_scan.ScanConfig().Scan3()
+                * (
+                    dv_scan3_scan_dataset.Preprocess 
+                    * dv_scan3_scan.ResponseId.proj(..., scan_ms_delay='ms_delay')
+                )  # recover spike_method
+                & dynamic_scan
+            )
+            unit_keys = units.fetch(
+                *(fuse.ScanDone * fuse.ScanSet.Unit).primary_key,
+                as_dict=True,
+                order_by="nn_response_index"
+            )
+
+            assert len(unit_keys) == n_units
+
+            return unit_keys
+
+        def responses(self, dynamic_scan, trial_idx, condition_hashes):
+            assert len(trial_idx) == len(condition_hashes)
+            cond_df = pd.DataFrame({"condition_hash": condition_hashes})
+            resp_key_df = pd.DataFrame(
+                (stimulus.Frame & cond_df).fetch(
+                    "image_class", "image_id", "condition_hash", as_dict=True
+                )
+            )
+            response = (
+                dv_nn9_scan.ScanModelInstance * dv_nn9_resp.ScanImageResponse
+                & dynamic_scan
+                & self
+                & resp_key_df
+            )
+            resp_df = pd.DataFrame(
+                (response & resp_key_df).fetch(
+                    "image_class", "image_id", "response", as_dict=True
+                )
+            )
+            resp_df = cond_df.merge(
+                resp_key_df.merge(resp_df, how="left"), how="left", validate="m:1"
+            )
+            assert len(cond_df) == len(resp_df)
+            return np.stack(resp_df.response.values)  # (n_images, n_units)
+
+        def unique_unit_mapping(self, dynamic_scan):
+            if (
+                    self
+                    * dv_nn9_scan.ScanConfig.Scan3()
+                    * dv_scan3_scan_dataset.UnitConfig.Unique()
+                ):
+    
+                key = (
+                    (
+                        self
+                        * dv_nn9_scan.ScanConfig.Scan3()
+                        * dv_scan3_scan_dataset.UnitConfig.Unique()
+                    )
+                    & dynamic_scan
+                ).fetch1()  # get unique_id
+                unique_unit_key = (dv_scan3_scan.Unique() & dynamic_scan & key).fetch1(
+                    "KEY"
+                )
+                unique_unit_rel = (
+                    dv_scan3_scan.Unique.Unit
+                    * dv_scan3_scan.Unique.Neuron.proj(unique_unit_id="unit_id")
+                    & unique_unit_key
+                )
+                return (
+                    dj.U("animal_id", "session", "scan_idx", "unit_id", "unique_unit_id")
+                    & unique_unit_rel
+                )
+            elif (
+                    self
+                    * dv_nn9_scan.ScanConfig.Scan3()
+                    * dv_scan3_scan_dataset.UnitConfig.All()
+                ):  # return a mapping from all units to themselves
+                units = (
+                    self
+                    * dv_nn9_scan.Scan.Unit
+                    * dv_nn9_scan.ScanConfig().Scan3()
+                )
+                return units.proj(unique_unit_id='unit_id * 1')
+            else:
+                raise NotImplementedError(
+                    "`unique_unit_mapping` is not implemented for key {}!".format(
+                        self.fetch1()
+                    )
+                )
 
 @schema
 class DvScanInfo(dj.Computed):
@@ -151,10 +283,10 @@ class DvScanInfo(dj.Computed):
 
     @property
     def key_source(self):
-        fuse = dj.create_virtual_module("fuse", "pipeline_fuse")
         keys = fuse.ScanDone * DvModelConfig
         key = [
             dv_nn6_models() * DvModelConfig.Nn6 * dv_nn6_scan.Scan,
+            dv_nn9_scan.ScanModelInstance * DvModelConfig.Nn9 * dv_nn9_scan.Scan,
         ]
         return keys & key
 
