@@ -2,16 +2,21 @@ import numpy as np
 import datajoint as dj
 
 
-from neuro_data.static_images.data_schemas import StaticScanCandidate, StaticScan, ImageNetSplit, ConditionTier, Frame, InputResponse, Eye, Treadmill, StaticMultiDataset, StaticMultiDatasetGroupAssignment, ExcludedTrial
+from neuro_data.static_images.data_schemas import StaticScanCandidate, StaticScan, ImageNetSplit, ConditionTier, Frame, InputResponse, Eye, Treadmill, StaticMultiDataset, StaticMultiDatasetGroupAssignment, ExcludedTrial, StaticMultiDataset
 
 pipeline_anatomy = dj.create_virtual_module('pipeline_anatomy', 'pipeline_anatomy')
 pipeline_fuse = dj.create_virtual_module('pipeline_fuse', 'pipeline_fuse')
 pipeline_stimulus = dj.create_virtual_module('pipeline_stimulus', 'pipeline_stimulus')
 
+<<<<<<< HEAD
 PREPROC_ID = 9
+=======
+PREPROC_ID = 0
+>>>>>>> 032fea8786f395bb631e2375554e3ccbe8d7a14d
 
 class NeuroDataPipelineManagement():
-    def __init__(self):
+    def __init__(self, preproc_id=PREPROC_ID):
+        self.preproc_id = preproc_id
         pass
 
     @staticmethod
@@ -48,8 +53,7 @@ class NeuroDataPipelineManagement():
             neuron_unit_key['layer'] = layer
             pipeline_anatomy.LayerMembership().insert1(neuron_unit_key, allow_direct_insert=True)
 
-    @staticmethod
-    def process_static_scans(target_scans):
+    def process_static_scans(self, target_scans):
         """
         Function that goes and check for every table that needs to be populate as well as provide an option
         to manaully populate AreaMembership and LayerMembership, assuming that all the neurons can be label the same Area and Layer
@@ -159,11 +163,19 @@ class NeuroDataPipelineManagement():
             
             # Populate Frame
             print("[NeuroData.Static Populate]: Populating Frame:")
+<<<<<<< HEAD
             Frame.populate(dict(preproc_id = PREPROC_ID), ConditionTier & target_scan)
 
             # Populate InputResponse
             print("[NeuroData.Static Populate]: Populating InputResponse:")
             InputResponse().populate(target_scan_done_key, dict(preproc_id = PREPROC_ID))
+=======
+            Frame.populate(dict(preproc_id = self.preproc_id), ConditionTier & target_scan)
+
+            # Populate InputResponse
+            print("[NeuroData.Static Populate]: Populating InputResponse:")
+            InputResponse().populate(target_scan_done_key, dict(preproc_id = self.preproc_id))
+>>>>>>> 032fea8786f395bb631e2375554e3ccbe8d7a14d
 
             # Populate Eye
             print("[NeuroData.Static Populate]: Populating Eye:")
@@ -175,11 +187,15 @@ class NeuroDataPipelineManagement():
 
             # Insert Scan into StaticMultiDatasetGroupAssignment with whatever is the next highest_group_id
             print("[NeuroData.Static Populate]: Inserting Scan into StaticMultiDatasetGroupAssignment with next largest group_id:")
+<<<<<<< HEAD
             target_input_response_key = (InputResponse & target_scan & dict(preproc_id=PREPROC_ID)).fetch1('KEY')
+=======
+            target_input_response_key = (InputResponse & target_scan & dict(preproc_id=self.preproc_id)).fetch1('KEY')
+>>>>>>> 032fea8786f395bb631e2375554e3ccbe8d7a14d
             if StaticMultiDatasetGroupAssignment & target_input_response_key:
                 print("[NeuroData.Static Populate]: Scan is already in StaticMultiDatasetGroupAssignment, skipping")
             else:
-                target_input_response_key['group_id'] = StaticMultiDatasetGroupAssignment().fetch('group_id').max() + 1
+                target_input_response_key['group_id'] = StaticMultiDataset.fetch('group_id').max() + 1
                 target_input_response_key['description'] = 'Inserted from PipelineManagement'
                 StaticMultiDatasetGroupAssignment.insert1(target_input_response_key)
                 
@@ -188,7 +204,11 @@ class NeuroDataPipelineManagement():
             StaticMultiDataset().fill()
 
             print('[NeuroData.Static Populate]: Generating HDF5 File')
+<<<<<<< HEAD
             InputResponse().get_filename(dict(**target_scan, preproc_id = PREPROC_ID))
+=======
+            InputResponse().get_filename(dict(**target_scan, preproc_id = self.preproc_id))
+>>>>>>> 032fea8786f395bb631e2375554e3ccbe8d7a14d
 
             print('[PROCESSING COMPLETED FOR SCAN: ' + str(target_scan) + ']\n')
 
