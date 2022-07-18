@@ -1085,13 +1085,11 @@ class StaticMultiDataset(dj.Manual):
                 StaticMultiDataset.Member().insert1(dict(scan, name = _template.format(**scan)), ignore_extra_fields=True)
 
     def fetch_data(self, key, key_order=None):
-        # dataset_config = dj.create_virtual_module('dataset_config', 'neurodata_static')
-        # from neuro_data.static_images.dataset_config import MultiDataset
+        from neuro_data.static_images.dataset_config import MultiDataset
         key = (self & key).fetch1()
-        # if key in dataset_config.MultiDataset:
-        #     from neuro_data.static_images.dataset_config import MultiDataset
-        #     ret = MultiDataset().fetch_data(key, key_order=key_order)
-        #     return ret
+        if key in MultiDataset:
+            ret = MultiDataset().fetch_data(key, key_order=key_order)
+            return ret
         assert len(self & key) == 1, 'Key must refer to exactly one multi dataset'
         ret = OrderedDict()
         log.info('Fetching data for ' +  repr(key))
