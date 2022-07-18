@@ -8,11 +8,7 @@ pipeline_anatomy = dj.create_virtual_module('pipeline_anatomy', 'pipeline_anatom
 pipeline_fuse = dj.create_virtual_module('pipeline_fuse', 'pipeline_fuse')
 pipeline_stimulus = dj.create_virtual_module('pipeline_stimulus', 'pipeline_stimulus')
 
-<<<<<<< HEAD
-PREPROC_ID = 9
-=======
 PREPROC_ID = 0
->>>>>>> 032fea8786f395bb631e2375554e3ccbe8d7a14d
 
 class NeuroDataPipelineManagement():
     def __init__(self, preproc_id=PREPROC_ID):
@@ -163,19 +159,11 @@ class NeuroDataPipelineManagement():
             
             # Populate Frame
             print("[NeuroData.Static Populate]: Populating Frame:")
-<<<<<<< HEAD
-            Frame.populate(dict(preproc_id = PREPROC_ID), ConditionTier & target_scan)
-
-            # Populate InputResponse
-            print("[NeuroData.Static Populate]: Populating InputResponse:")
-            InputResponse().populate(target_scan_done_key, dict(preproc_id = PREPROC_ID))
-=======
             Frame.populate(dict(preproc_id = self.preproc_id), ConditionTier & target_scan)
 
             # Populate InputResponse
             print("[NeuroData.Static Populate]: Populating InputResponse:")
             InputResponse().populate(target_scan_done_key, dict(preproc_id = self.preproc_id))
->>>>>>> 032fea8786f395bb631e2375554e3ccbe8d7a14d
 
             # Populate Eye
             print("[NeuroData.Static Populate]: Populating Eye:")
@@ -187,11 +175,7 @@ class NeuroDataPipelineManagement():
 
             # Insert Scan into StaticMultiDatasetGroupAssignment with whatever is the next highest_group_id
             print("[NeuroData.Static Populate]: Inserting Scan into StaticMultiDatasetGroupAssignment with next largest group_id:")
-<<<<<<< HEAD
-            target_input_response_key = (InputResponse & target_scan & dict(preproc_id=PREPROC_ID)).fetch1('KEY')
-=======
             target_input_response_key = (InputResponse & target_scan & dict(preproc_id=self.preproc_id)).fetch1('KEY')
->>>>>>> 032fea8786f395bb631e2375554e3ccbe8d7a14d
             if StaticMultiDatasetGroupAssignment & target_input_response_key:
                 print("[NeuroData.Static Populate]: Scan is already in StaticMultiDatasetGroupAssignment, skipping")
             else:
@@ -204,11 +188,7 @@ class NeuroDataPipelineManagement():
             StaticMultiDataset().fill()
 
             print('[NeuroData.Static Populate]: Generating HDF5 File')
-<<<<<<< HEAD
-            InputResponse().get_filename(dict(**target_scan, preproc_id = PREPROC_ID))
-=======
             InputResponse().get_filename(dict(**target_scan, preproc_id = self.preproc_id))
->>>>>>> 032fea8786f395bb631e2375554e3ccbe8d7a14d
 
             print('[PROCESSING COMPLETED FOR SCAN: ' + str(target_scan) + ']\n')
 

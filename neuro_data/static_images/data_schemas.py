@@ -188,6 +188,7 @@ class ImageNetSplit(dj.Lookup):
             # Hack: Assign tier for MEI test images if there exists any
             unique_mei_frames = dj.U('image_id', 'image_class').aggr(frame_table * stimulus.Trial & scan_key & [{'image_class':ic} for ic in MEI_CLASSES], repeats='COUNT(*)')
             if len(unique_mei_frames) > 0:
+                n = int(np.median(unique_frames.fetch('repeats')))  # HACK
                 image_ids, image_classes = (unique_mei_frames & 'repeats > {}'.format(n)).fetch('image_id', 'image_class')
                 print('Inserting {} mei test images'.format(len(image_ids)))
                 self.insert([{'image_id': iid, 'image_class': ic, 'tier': 'test_mei'} for iid, ic in
@@ -530,8 +531,10 @@ class InputResponse(dj.Computed, FilterMixin):
 
         soma = pipe.MaskClassification.Type() & dict(type='soma')
 
-        spikes = (dj.U('field', 'channel') * pipe.Activity.Trace() * StaticScan.Unit() \
+        spikes = (dj.U('field', 'channel') * pipe.Activity.Trace() * pipe.ScanSet.Unit() \
                   * pipe.ScanSet.UnitInfo() & soma & key)
+        # spikes = (dj.U('field', 'channel') * pipe.Activity.Trace() * StaticScan.Unit() \
+        #           * pipe.ScanSet.UnitInfo() & soma & key)
         traces, ms_delay, trace_keys = spikes.fetch('trace', 'ms_delay', dj.key,
                                                     order_by='animal_id, session, scan_idx, unit_id')
         delay = np.fromiter(ms_delay / 1000, dtype=np.float)
