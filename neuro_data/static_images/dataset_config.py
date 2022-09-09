@@ -13,6 +13,8 @@ from .data_schemas import (
     ConditionTier,
     Frame,
     InputResponse,
+    Eye,
+    Treadmill,
     Preprocessing,
     StaticMultiDataset,
     StaticScan,
@@ -20,6 +22,8 @@ from .data_schemas import (
     stimulus,
 )
 from .ds_pipe import DvScanInfo
+
+jiakun = dj.create_virtual_module("jiakun", "jiakun_model_data")
 
 
 @schema
@@ -39,6 +43,11 @@ class InputConfig(ConfigBase, dj.Lookup):
         content = [
             {"preproc_id": 9},
         ]
+        warning = "The output frame format was not compatible with StatsConfig and led to an underestimated std of the images. This part table is deprecated and only kept for record keeping purposes."
+
+        def __new__(cls, *args, **kwargs):
+            log.warning(cls.warning)
+            return super().__new__(cls, *args, **kwargs)
 
         def input(self, scan_key):
             params = (self * Preprocessing).fetch1()
@@ -62,6 +71,109 @@ class InputConfig(ConfigBase, dj.Lookup):
             ), f"Images has shape not supported: {frame.shape}!"
             frame = frame[:, None, ...]
             return trial_idx, cond, frame, np.full(len(trial_idx), "stimulus.Frame")
+
+    class NeuroStaticValidFrame(dj.Part):
+        # only load stimulus_type=='stimulus.Frame'
+        definition = """
+        -> master
+        ---
+        -> Preprocessing
+        """
+        content = [
+            {"preproc_id": 9},
+        ]
+
+        def input(self, scan_key):
+            """Load all frames included in InputResponse.Input and filtered by `valid` in Eye and Treadmill"""
+            params = (self * Preprocessing).fetch1()
+            if not (params["gamma"] or params["linear_mon"]):
+                trial_idx, cond, frame = (
+                    InputResponse.Input * Frame & stimulus.Frame & scan_key & params
+                ).fetch(
+                    "trial_idx",
+                    "condition_hash",
+                    "frame",
+                    order_by="row_id",  # order by row_id to ensure the order matches Eye and Treadmill
+                )
+                valid_eye = (Eye & scan_key & params).fetch("valid")
+                valid_treadmill = (Treadmill & scan_key & params).fetch("valid")
+                valid = valid_eye & valid_treadmill
+                # keep only valid trials
+                trial_idx = trial_idx[valid]
+                cond = cond[valid]
+                frame = np.stack(frame)[valid]
+                # check if all frames have the same shape
+                assert (
+                    len(frame.shape) == 3
+                    and frame.shape[1] == params["row"]
+                    and frame.shape[2] == params["col"]
+                ), "dimension mismatch, only support 3-D frame (B,H,W)"
+                # adjust frame shape to (B,1,W,H)
+                frame = frame[:, None, ...]
+            else:
+                raise NotImplementedError(
+                    f'InputConfig: gamma={params["gamma"]}, linear_mon={params["linear_mon"]} not implemented!'
+                )
+            return trial_idx, cond, frame, np.full(len(trial_idx), "stimulus.Frame")
+
+    # # WIP
+    # class Frame2Jk(dj.Part):
+    #     # only load stimulus_type=='stimulus.Frame2', fetch input image from Jiakun's personal InputResponse table
+    #     definition = """
+    #     -> master
+    #     ---
+    #     row             : smallint          # row size of the image
+    #     col             : smallint          # column size of the image
+    #     """
+    #     content = [
+    #         {"row": 36, "col": 64},
+    #     ]
+
+    #     @staticmethod
+    #     def process_frame(preproc_key, frame):
+    #         """
+    #         Helper function that preprocesses a frame
+    #         """
+    #         import cv2
+
+    #         imgsize = (Preprocessing() & preproc_key).fetch1(
+    #             "col", "row"
+    #         )  # target size of movie frames
+    #         log.info("Downsampling frame")
+    #         if not frame.shape[0] / imgsize[1] == frame.shape[1] / imgsize[0]:
+    #             log.warning("Image size would change aspect ratio.")
+
+    #         return cv2.resize(frame, imgsize, interpolation=cv2.INTER_AREA).astype(
+    #             np.float32
+    #         )
+
+    #     def input(self, scan_key):
+    #         params = (self * Preprocessing).fetch1()
+    #         if not (params["gamma"] or params["linear_mon"]):
+    #             trial_idx, cond, frame = (
+    #                 InputResponse.Input * Frame & stimulus.Frame & scan_key & params
+    #             ).fetch(
+    #                 "trial_idx",
+    #                 "condition_hash",
+    #                 "frame",
+    #                 order_by="row_id",  # order by row_id to ensure the order matches Eye and Treadmill
+    #             )
+    #             valid_eye = (Eye & scan_key & params).fetch("valid")
+    #             valid_treadmill = (Treadmill & scan_key & params).fetch("valid")
+    #             valid = valid_eye & valid_treadmill
+    #             # keep only valid trials
+    #             trial_idx = trial_idx[valid]
+    #             cond = cond[valid]
+    #             frame = np.stack(frame)[valid]
+    #             # check if all frames have the same shape
+    #             assert len(frame.shape) == 3 and frame.shape[1]==params['row'] and frame.shape[2]==params['col'], 'dimension mismatch, only support 3-D frame (B,H,W)'
+    #             # adjust frame shape to (B,1,W,H)
+    #             frame = frame[:, None, ...]
+    #         else:
+    #             raise NotImplementedError(
+    #                 f'InputConfig: gamma={params["gamma"]}, linear_mon={params["linear_mon"]} not implemented!'
+    #             )
+    #         return trial_idx, cond, frame, np.full(len(trial_idx), "stimulus.Frame")
 
 
 @schema
@@ -112,6 +224,29 @@ class TierConfig(ConfigBase, dj.Lookup):
             cond_df = cond_df.merge(cond_tier_df, on="condition_hash", how="left")
             assert cond_df.tier.notnull().all(), "Missing tier for some conditions!"
             return cond_df.tier.values
+
+    # # WIP
+    # class ConditionTierJk(dj.Part):
+    #     definition = """
+    #     -> master
+    #     ---
+    #     """
+    #     content = [
+    #         {},
+    #     ]
+
+    #     def tier(self, scan_key, condition_hashes):
+    #         cond_tier_df = pd.DataFrame(
+    #             (
+    #                 (jiakun.ConditionTier & scan_key).fetch(
+    #                     "condition_hash", "tier", as_dict=True
+    #                 )
+    #             )
+    #         )
+    #         cond_df = pd.DataFrame(dict(condition_hash=condition_hashes))
+    #         cond_df = cond_df.merge(cond_tier_df, on="condition_hash", how="left")
+    #         assert cond_df.tier.notnull().all(), "Missing tier for some conditions!"
+    #         return cond_df.tier.values
 
 
 @schema
@@ -266,7 +401,11 @@ class StatsConfig(ConfigBase, dj.Lookup):
             return ret
 
         def stats(self, condition_hashes, images, responses, tiers):
-
+            assert len(images.shape) == 4, "images dimension must be [B,C,H,W]"
+            assert images.shape[1] == 1, "only support single channel images"
+            assert (
+                images.shape[0] == len(condition_hashes) == len(responses) == len(tiers)
+            ), "number of trials mismatch"
             key = self.fetch1()
             # check if the method is eligible for condition_hashes requested
             assert (
@@ -284,14 +423,6 @@ class StatsConfig(ConfigBase, dj.Lookup):
                 FF_CLASSES
             ), "StatsConfig.NeuroStaticNoBehFrame is only implemented for full-field stimulus"
 
-            # reshape inputs
-            images = np.stack(images)
-            if len(images.shape) == 3:
-                log.info("Adding channel dimension")
-                images = images[:, None, ...]
-            elif len(images.shape) == 4:
-                images = images.transpose(0, 3, 1, 2)
-
             # compute stats
             if key["stats_tier"] in ("train", "validation", "test"):
                 ix = tiers == key["stats_tier"]
@@ -308,6 +439,131 @@ class StatsConfig(ConfigBase, dj.Lookup):
             )
             statistics = dict(images=input_statistics, responses=response_statistics)
             return statistics
+
+    # # WIP
+    # class NoBehFullFieldFrame2(dj.Part):
+    #     # implemented only for full field stimulus with stimulus_type=='stimulus.Frame2'
+    #     definition = """
+    #     # mimic the behavior of InputResponse with the corresponding preprocess_id to compute the statistics of input and responses, do not compute stats for behavior variables
+    #     -> master
+    #     ---
+    #     stats_tier="train"                 : enum("train", "test", "validation", "all")               # tier used for computing stats
+    #     stats_per_input                    : tinyint                                                  # whether to compute stats per input
+    #     """
+    #     content = [
+    #         dict(stats_tier="train", stats_per_input=0),
+    #     ]
+
+    #     @staticmethod
+    #     def make_mask(x, y, r, trans, sz):  # sz is height by width
+    #         if r > 1:
+    #             return np.ones(sz)
+    #         else:
+    #             radius = r * sz[1]
+    #             transition = trans * sz[1]
+    #             x_, y_ = x, y
+    #             x = np.linspace(-sz[1] / 2, sz[1] / 2, sz[1]) - x_ * sz[0]
+    #             y = np.linspace(-sz[0] / 2, sz[0] / 2, sz[0]) - y_ * sz[0]
+    #             [X, Y] = np.meshgrid(x, y)
+    #             rr = np.sqrt(X * X + Y * Y)
+    #             fxn = lambda r: 0.5 * (1 + np.cos(np.pi * r)) * (r < 1) * (r > 0) + (
+    #                 r < 0
+    #             )
+    #             alpha_mask = fxn((rr - radius) / transition + 1)
+    #             return alpha_mask
+
+    #     @staticmethod
+    #     def run_stats_resp(data, ix, axis=0):
+    #         ret = {}
+    #         data = data[ix]
+    #         ret["all"] = dict(
+    #             mean=data.mean(axis=axis).astype(np.float32),
+    #             std=data.std(axis=axis, ddof=1).astype(np.float32),
+    #             min=data.min(axis=axis).astype(np.float32),
+    #             max=data.max(axis=axis).astype(np.float32),
+    #             median=np.median(data, axis=axis).astype(np.float32),
+    #         )
+    #         ret["stimulus.Frame2"] = ret["all"]
+    #         return ret
+
+    #     def run_stats_input(self, data, info_df, ix, per_input):
+    #         if per_input:
+    #             raise NotImplementedError("per_input is not implemented for Frame2")
+    #         ret = {}
+    #         data = data[ix]
+    #         info_df = info_df.loc[ix]
+    #         from statsmodels.stats.weightstats import DescrStatsW as wstats
+
+    #         sizes = [d.squeeze().shape for d in data]
+    #         assert len(np.unqiue(sizes)) == 1, "All images must have the same size"
+    #         masks = [
+    #             self.make_mask(
+    #                 row["aperture_x"],
+    #                 row["aperture_y"],
+    #                 row["aperture_r"],
+    #                 row["aperture_transition"],
+    #                 sizes[0],
+    #             )
+    #             for _, row in info_df.iterrows()
+    #         ]
+    #         data_flat = np.hstack(d.flatten() for d in data)
+    #         data_mask = np.hstack(m.flatten() for m in masks)
+
+    #         data_mean = wstats(data_flat, data_mask).mean
+    #         data_std = wstats(data_flat, data_mask).std
+
+    #         ret["stimulus.Frame2"] = dict(
+    #             mean=data_mean.astype(np.float32),
+    #             std=data_std.astype(np.float32),
+    #             min=data.min().astype(np.float32),
+    #             max=data.max().astype(np.float32),
+    #             median=np.median(data).astype(np.float32),
+    #         )
+    #         ret["all"] = ret["stimulus.Frame2"]
+    #         return ret
+
+    #     def stats(self, condition_hashes, images, responses, tiers):
+
+    #         key = self.fetch1()
+    #         # check if the method is eligible for condition_hashes requested and collect stimulus info
+    #         assert (
+    #             (
+    #                 stimulus.Condition
+    #                 & "condition_hash in {}".format(tuple(condition_hashes))
+    #             ).fetch("stimulus_type")
+    #             == "stimulus.Frame2"
+    #         ).all(), "StatsConfig.NeuroStaticNoBehFrame2 is only implemented for stimulus.Frame2"
+    #         info_df = pd.DataFrame(dict(condition_hash=condition_hashes))
+    #         info_df = info_df.merge(
+    #             pd.DataFrame(stimulus.Condition.Frame2 & info_df).fetch(as_dict=True),
+    #             how="left",
+    #         )
+    #         assert not info_df.isna().any()
+
+    #         # reshape inputs
+    #         images = np.stack(images)
+    #         if len(images.shape) == 3:
+    #             log.info("Adding channel dimension")
+    #             images = images[:, None, ...]
+    #         elif len(images.shape) == 4:
+    #             images = images.transpose(0, 3, 1, 2)
+
+    #         # compute stats
+    #         if key["stats_tier"] in ("train", "validation", "test"):
+    #             ix = tiers == key["stats_tier"]
+    #         elif key["stats_tier"] == "all":
+    #             ix = np.ones_like(tiers, dtype=bool)
+    #         else:
+    #             raise NotImplementedError(
+    #                 "stats_tier must be one of train, validation, test, all"
+    #             )
+
+    #         response_statistics = self.run_stats_resp(responses, ix, axis=0)
+    #         input_statistics = self.run_stats_input(
+    #             images, info_df, ix, per_input=key["stats_per_input"]
+    #         )
+    #         statistics = dict(images=input_statistics, responses=response_statistics)
+    #         return statistics
 
 
 @schema
@@ -342,6 +598,18 @@ class DatasetConfig(ConfigBase, dj.Lookup):
         """
 
         data_names = ["images", "responses"]
+
+        def describe(self, context=None, printout=None, key=None):
+            if key:
+                input_type = (InputConfig() * self & key).fetch1("input_type")
+                tier_type = (TierConfig() * self & key).fetch1("tier_type")
+                layer_type = (LayerConfig() * self & key).fetch1("layer_type")
+                area_type = (AreaConfig() * self & key).fetch1("area_type")
+                stats_type = (StatsConfig() * self & key).fetch1("stats_type")
+                desc = f"DvScanInfo|StaticScan|InputConfig.{input_type}|TierConfig.{tier_type}|LayerConfig.{layer_type}|AreaConfig.{area_type}|StatsConfig.{stats_type}"
+                return desc
+            else:
+                return super().describe(context, printout)
 
         @property
         def content(self):
