@@ -295,12 +295,16 @@ class h5cached:
                 raise ValueError('Can only return one dataset!')
 
             k = (oself & key).fetch1()
+            if k['spike_method'] != 5: # hack to specify spike_method if not default(5)
+                file_format = 'static{animal_id}-{session}-{scan_idx}-preproc{preproc_id}-spikemethod{spike_method}.h5'
+            else:
+                file_format = self.file_format
 
-            if self.file_format is None:
+            if file_format is None:
                 hash = key_hash(dict(k, _class_name=cls.__name__, **kwargs))
                 filename = '{hash}.h5'.format(hash=hash)
             else:
-                filename = self.file_format.format(**k)
+                filename = file_format.format(**k)
 
             cachefile = op.join(self.cache_dir, filename)
 
