@@ -405,7 +405,9 @@ class DvModelConfig(ConfigBase, dj.Lookup):
             )
             assert len(resp_key_df) == len(cond_df)
             response = (
-                dv_nn10_scan.ScanModelInstance * dv_nn10_resp.ScanImageResponse * dv_nn10_resp.ImageResponseConfig.Aperture()
+                dv_nn10_scan.ScanModelInstance
+                * dv_nn10_resp.ScanImageResponse
+                * dv_nn10_resp.ImageResponseConfig.Aperture()
                 & dynamic_scan
                 & self
                 & resp_key_df
@@ -483,20 +485,8 @@ class DvScanInfo(dj.Computed):
 
     @property
     def key_source(self):
-        keys = data.StaticScan * DvModelConfig
-        key = [
-            # dv_nn6_models() * DvModelConfig.Nn6 * dv_nn6_scan.Scan,
-            # dv_nn9_scan.ScanModelInstance * DvModelConfig.Nn9 * dv_nn9_scan.Scan,
-            dv_nn10_scan.ScanModelInstance
-            * DvModelConfig.Nn10
-            * dv_nn10_scan.Scan
-            ,
-            dv_nn10_scan.ScanModelInstance
-            * DvModelConfig.Nn10Frame2
-            * dv_nn10_scan.Scan
-            ,
-        ]
-        return keys & key
+        from neuro_data.static_images import requests
+        return super().key_source & requests.DvScanInfoRequest
 
     def make(self, key):
         unit_keys = DvModelConfig().part_table(key).unit_keys(key)
