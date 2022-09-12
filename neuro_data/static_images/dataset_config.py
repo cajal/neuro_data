@@ -43,7 +43,7 @@ class InputConfig(ConfigBase, dj.Lookup):
         content = [
             {"preproc_id": 9},
         ]
-        warning = "The output frame format was not compatible with StatsConfig and led to an underestimated std of the images. This part table is deprecated and only kept for record keeping purposes."
+        warning = "NeuroStaticFrame: The output frame format was not compatible with StatsConfig and led to an underestimated std of the images. This part table is deprecated and only kept for record keeping purposes."
 
         def __new__(cls, *args, **kwargs):
             log.warning(cls.warning)
@@ -95,8 +95,8 @@ class InputConfig(ConfigBase, dj.Lookup):
                     "frame",
                     order_by="row_id",  # order by row_id to ensure the order matches Eye and Treadmill
                 )
-                valid_eye = (Eye & scan_key & params).fetch("valid")
-                valid_treadmill = (Treadmill & scan_key & params).fetch("valid")
+                valid_eye = (Eye & scan_key & params).fetch1("valid")
+                valid_treadmill = (Treadmill & scan_key & params).fetch1("valid")
                 valid = valid_eye & valid_treadmill
                 # keep only valid trials
                 trial_idx = trial_idx[valid]
@@ -575,8 +575,8 @@ class DatasetConfig(ConfigBase, dj.Lookup):
         return self.part_table(key).get_filename()
 
     def compute_data(self, key=None):
-        key = self.fetch1() if key is None else key
-        self.part_table(key).compute_data()
+        key = self.fetch1() if key is None else (self & key).fetch1()
+        return self.part_table(key).compute_data(key)
 
     @h5cached(
         "/external/cache/dynamic-static",
@@ -599,17 +599,14 @@ class DatasetConfig(ConfigBase, dj.Lookup):
 
         data_names = ["images", "responses"]
 
-        def describe(self, context=None, printout=None, key=None):
-            if key:
-                input_type = (InputConfig() * self & key).fetch1("input_type")
-                tier_type = (TierConfig() * self & key).fetch1("tier_type")
-                layer_type = (LayerConfig() * self & key).fetch1("layer_type")
-                area_type = (AreaConfig() * self & key).fetch1("area_type")
-                stats_type = (StatsConfig() * self & key).fetch1("stats_type")
-                desc = f"DvScanInfo|StaticScan|InputConfig.{input_type}|TierConfig.{tier_type}|LayerConfig.{layer_type}|AreaConfig.{area_type}|StatsConfig.{stats_type}"
-                return desc
-            else:
-                return super().describe(context, printout)
+        def describe(self, key):
+            input_type = (InputConfig() & key).fetch1("input_type")
+            tier_type = (TierConfig() & key).fetch1("tier_type")
+            layer_type = (LayerConfig() & key).fetch1("layer_type")
+            area_type = (AreaConfig() & key).fetch1("area_type")
+            stats_type = (StatsConfig() & key).fetch1("stats_type")
+            desc = f"DvScanInfo|StaticScan|InputConfig.{input_type}|TierConfig.{tier_type}|LayerConfig.{layer_type}|AreaConfig.{area_type}|StatsConfig.{stats_type}"
+            return desc
 
         @property
         def content(self):
@@ -634,16 +631,7 @@ class DatasetConfig(ConfigBase, dj.Lookup):
             return f'{group_id}-{key["animal_id"]}-{key["dynamic_session"]}-{key["dynamic_scan_idx"]}-{key["static_session"]}-{key["static_scan_idx"]}'
 
         def compute_data(self, key=None):
-            key = self.fetch1() if key is None else key
-            dynamic_scan = (
-                DvScanInfo
-                & {
-                    **key,
-                    "animal_id": key["animal_id"],
-                    "session": key["dynamic_session"],
-                    "scan_idx": key["dynamic_scan_idx"],
-                }
-            ).fetch1("KEY")
+            key = self.fetch1() if key is None else (self & key).fetch1()
             static_scan = (
                 StaticScan()
                 & {
