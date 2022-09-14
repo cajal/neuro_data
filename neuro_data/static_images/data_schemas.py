@@ -387,6 +387,10 @@ def process_frame(preproc_key, frame):
     """
     Helper function that preprocesses a frame
     """
+    #TODO: remove this
+    from IPython import embed
+    embed()
+    exit()
     import cv2
     imgsize = (Preprocessing() & preproc_key).fetch1('col', 'row')  # target size of movie frames
     log.info('Downsampling frame')
