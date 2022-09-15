@@ -131,7 +131,9 @@ class InputConfig(ConfigBase, dj.Lookup):
             params = (self * Preprocessing).fetch1()
             if not (params["gamma"] or params["linear_mon"]):
                 trial_idx, cond, frame = (
-                    stimulus.Trial * Frame & scan_key & params  # WARNING: anything populated in Frame will be loaded, does not restrict on stimulus_type, nor check if all stimuli are processed
+                    stimulus.Trial * Frame
+                    & scan_key
+                    & params  # WARNING: anything populated in Frame will be loaded, does not restrict on stimulus_type, nor check if all stimuli are processed
                 ).fetch(
                     "trial_idx",
                     "condition_hash",
@@ -203,7 +205,6 @@ class TierConfig(ConfigBase, dj.Lookup):
             cond_df = cond_df.merge(cond_tier_df, on="condition_hash", how="left")
             assert cond_df.tier.notnull().all(), "Missing tier for some conditions!"
             return cond_df.tier.values
-
 
 
 @schema
@@ -478,7 +479,6 @@ class StatsConfig(ConfigBase, dj.Lookup):
                 how="left",
             )
             assert not info_df.isna().any().any(), "Missing stimulus info"
-
 
             # compute stats
             if key["stats_tier"] in ("train", "validation", "test"):

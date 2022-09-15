@@ -11,12 +11,14 @@ import datajoint as dj
 
 schema = dj.schema("neurodata_static")
 
+
 @schema
 class DvScanInfoRequest(dj.Manual):
     definition = """
     -> StaticScan
     -> DvModelConfig
     """
+
 
 @schema
 class DynamicStaticNoBehRequest(dj.Manual):
