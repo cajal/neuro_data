@@ -24,8 +24,6 @@ from .data_schemas import (
 )
 from .ds_pipe import DvScanInfo
 
-jiakun = dj.create_virtual_module("jiakun", "jiakun_model_data")
-
 
 @schema
 class InputConfig(ConfigBase, dj.Lookup):
@@ -206,28 +204,6 @@ class TierConfig(ConfigBase, dj.Lookup):
             assert cond_df.tier.notnull().all(), "Missing tier for some conditions!"
             return cond_df.tier.values
 
-    class ConditionTierJk(dj.Part):
-        definition = """
-        -> master
-        ---
-        """
-        content = [
-            {},
-        ]
-
-        def tier(self, scan_key, condition_hashes):
-            cond_tier_df = pd.DataFrame(
-                (
-                    (jiakun.ConditionTier & scan_key & 'mask=2').fetch(
-                        "condition_hash", "tier", as_dict=True
-                    )
-                )
-            )
-            cond_df = pd.DataFrame(dict(condition_hash=condition_hashes))
-            cond_df = cond_df.merge(cond_tier_df, on="condition_hash", how="left")
-            assert cond_df.tier.notnull().all(), "Missing tier for some conditions!"
-            assert len(condition_hashes) == len(cond_df), "Number of condition hashes mismatch!"
-            return cond_df.tier.values
 
 
 @schema
