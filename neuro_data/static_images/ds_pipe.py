@@ -403,18 +403,25 @@ class DvModelConfig(ConfigBase, dj.Lookup):
                     as_dict=True,
                 )
             )
-            assert len(resp_key_df) == len(cond_df)
             response = (
                 dv_nn10_scan.ScanModelInstance
                 * dv_nn10_resp.ScanImageResponse
-                * dv_nn10_resp.ImageResponseConfig.Aperture()
+                * dv_nn10_resp.ImageConfig.Aperture()
                 & dynamic_scan
                 & self
                 & resp_key_df
             )
             resp_df = pd.DataFrame(
                 (response & resp_key_df).fetch(
-                    "image_class", "image_id", "response", as_dict=True
+                    "image_class",
+                    "image_id",
+                    "aperture_x",
+                    "aperture_y",
+                    "aperture_r",
+                    "aperture_transition",
+                    "background_value",
+                    "response"
+                    , as_dict=True
                 )
             )
             resp_df = cond_df.merge(
