@@ -87,12 +87,13 @@ class InputConfig(ConfigBase, dj.Lookup):
             """Load all frames included in InputResponse.Input and filtered by `valid` in Eye and Treadmill"""
             params = (self * Preprocessing).fetch1()
             if not (params["gamma"] or params["linear_mon"]):
-                trial_idx, cond, frame = (
-                    InputResponse.Input * Frame & scan_key & params
+                trial_idx, cond, frame, types = (
+                    InputResponse.Input * Frame * stimulus.Condition & scan_key & params
                 ).fetch(
                     "trial_idx",
                     "condition_hash",
                     "frame",
+                    "stimulus_type",
                     order_by="row_id",  # order by row_id to ensure the order matches Eye and Treadmill
                 )
                 valid_eye = (Eye & scan_key & params).fetch1("valid")
@@ -102,6 +103,7 @@ class InputConfig(ConfigBase, dj.Lookup):
                 trial_idx = trial_idx[valid]
                 cond = cond[valid]
                 frame = np.stack(frame)[valid]
+                types = types[valid]
                 # check if all frames have the same shape
                 assert (
                     len(frame.shape) == 3
@@ -114,47 +116,7 @@ class InputConfig(ConfigBase, dj.Lookup):
                 raise NotImplementedError(
                     f'InputConfig: gamma={params["gamma"]}, linear_mon={params["linear_mon"]} not implemented!'
                 )
-            return trial_idx, cond, frame, np.full(len(trial_idx), "stimulus.Frame")
-
-    class NeuroStaticFrameV2(dj.Part):
-        # only load stimulus_type=='stimulus.Frame2'
-        definition = """
-        -> master
-        ---
-        -> Preprocessing
-        """
-        content = [
-            {"preproc_id": 0},
-        ]
-
-        def input(self, scan_key):
-            params = (self * Preprocessing).fetch1()
-            if not (params["gamma"] or params["linear_mon"]):
-                trial_idx, cond, frame = (
-                    stimulus.Trial * Frame
-                    & scan_key
-                    & params  # WARNING: anything populated in Frame will be loaded, does not restrict on stimulus_type, nor check if all stimuli are processed
-                ).fetch(
-                    "trial_idx",
-                    "condition_hash",
-                    "frame",
-                    order_by="trial_idx",
-                )
-                # reshape inputs
-                frame = np.stack(frame)
-            else:
-                raise NotImplementedError(
-                    f'InputConfig: gamma={params["gamma"]}, linear_mon={params["linear_mon"]} not implemented!'
-                )
-            # check if all frames have the same shape
-            assert (
-                len(frame.shape) == 3
-                and frame.shape[1] == params["row"]
-                and frame.shape[2] == params["col"]
-            ), "dimension mismatch, only support 3-D frame (B,H,W)"
-            # adjust frame shape to (B,1,W,H)
-            frame = frame[:, None, ...]
-            return trial_idx, cond, frame, np.full(len(trial_idx), "stimulus.Frame")
+            return trial_idx, cond, frame, types
 
 
 @schema
@@ -456,7 +418,7 @@ class StatsConfig(ConfigBase, dj.Lookup):
                 std=data_std.astype(np.float32),
                 min=data.min().astype(np.float32),
                 max=data.max().astype(np.float32),
-                median=np.median(data).astype(np.float32),
+                median=np.median(data).astype(np.float32),  # median isn't computed with correct masking, downstream computation shouldn't use this value.
             )
             ret["all"] = ret["stimulus.Frame2"]
             return ret
@@ -502,9 +464,9 @@ class StatsConfig(ConfigBase, dj.Lookup):
 class DatasetConfig(ConfigBase, dj.Lookup):
     _config_type = "dataset"
 
-    def get_filename(self, key=None):
+    def get_filename(self, key=None, **kwargs):
         key = self.fetch1() if key is None else key
-        return self.part_table(key).get_filename()
+        return self.part_table(key).get_filename(**kwargs)
 
     def compute_data(self, key=None):
         key = self.fetch1() if key is None else (self & key).fetch1()
@@ -684,6 +646,14 @@ class MultiDataset(dj.Manual):
         return StaticMultiDataset.fetch("group_id").max() + 1
 
     def fill(self, member_key, description):
+        # check if dataset is already in MultiDataset
+        existing_dataset = MultiDataset().aggr(
+            MultiDataset.Member & member_key,
+            n_dataset="count(*)"
+        ) & f'n_dataset={len(DatasetConfig & member_key)}'
+        if existing_dataset:
+            print(f'Dataset already exists in MultiDataset: {existing_dataset.fetch1("KEY")}')
+            return
         key = dict(
             group_id=self.next_group_id,
             description="Inserted with MultiDataset: " + description,
