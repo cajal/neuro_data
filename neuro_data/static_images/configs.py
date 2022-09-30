@@ -420,14 +420,19 @@ class DataConfig(ConfigBase, dj.Lookup):
 
         @property
         def content(self):
-            for p in product(['all'],
-                             ['stimulus.Frame', '~stimulus.Frame', 'stimulus.ColorFrameProjector'],
-                             ['images,responses', ''],
-                             [True],
-                             [True, False],
-                             ['L4', 'L2/3', 'L6'],
-                             ['V1', 'LM']):
-                yield dict(zip(self.heading.dependent_attributes, p))
+            for p in [
+                *product(
+                    ["all"],
+                    ["stimulus.Frame", "~stimulus.Frame", "stimulus.ColorFrameProjector"],
+                    ["images,responses", ""],
+                    [True],
+                    [True, False],
+                    ["L4", "L2/3", "L6"],
+                    ["V1", "LM"],
+                ),
+                ["all", "stimulus.Frame2", "", True, False, "L2/3", "V1"],
+            ]:
+                yield dict(zip(self.heading.secondary_attributes, p))
 
     class ModeledAreaLayer(dj.Part, AreaLayerModelMixin):
         definition = """
@@ -441,7 +446,7 @@ class DataConfig(ConfigBase, dj.Lookup):
             for p in [
                 (0,)
             ]:
-                yield dict(zip(self.heading.dependent_attributes, p))
+                yield dict(zip(self.heading.secondary_attributes, p))
 
     class MultipleAreasOneLayer(dj.Part, AreaLayerRawMixin):
         definition = """
@@ -468,7 +473,7 @@ class DataConfig(ConfigBase, dj.Lookup):
                              [True, False],
                              ['L4', 'L2/3'],
                              ['all-unknown', 'all']):
-                yield dict(zip(self.heading.dependent_attributes, p))
+                yield dict(zip(self.heading.secondary_attributes, p))
 
     class MultipleAreasMultipleLayers(dj.Part, AreaLayerRawMixin):
         definition = """
@@ -495,7 +500,7 @@ class DataConfig(ConfigBase, dj.Lookup):
                              [True, False],
                              ['all-unset', 'all'],
                              ['all-unknown', 'all']):
-                yield dict(zip(self.heading.dependent_attributes, p))
+                yield dict(zip(self.heading.secondary_attributes, p))
 
     ############ Below are data configs that were using the buggy normalizer #################
     class AreaLayer(dj.Part, BackwardCompatibilityMixin, AreaLayerRawMixin):
@@ -522,7 +527,7 @@ class DataConfig(ConfigBase, dj.Lookup):
                              [True],
                              ['L4', 'L2/3'],
                              ['V1', 'LM']):
-                yield dict(zip(self.heading.dependent_attributes, p))
+                yield dict(zip(self.heading.secondary_attributes, p))
 
     class AreaLayerPercentOracle(dj.Part, BackwardCompatibilityMixin, AreaLayerRawMixin):
         definition = """
@@ -563,7 +568,7 @@ class DataConfig(ConfigBase, dj.Lookup):
                              ['V1'],
                              [25],
                              [75]):
-                yield dict(zip(self.heading.dependent_attributes, p))
+                yield dict(zip(self.heading.secondary_attributes, p))
             for p in product(['all'],
                              ['stimulus.Frame', '~stimulus.Frame'],
                              ['images,responses'],
@@ -573,7 +578,7 @@ class DataConfig(ConfigBase, dj.Lookup):
                              ['V1'],
                              [75],
                              [100]):
-                yield dict(zip(self.heading.dependent_attributes, p))
+                yield dict(zip(self.heading.secondary_attributes, p))
             for p in product(['all'],
                              ['stimulus.Frame', '~stimulus.Frame'],
                              ['images,responses'],
@@ -583,7 +588,7 @@ class DataConfig(ConfigBase, dj.Lookup):
                              ['V1'],
                              [0],
                              [100]):
-                yield dict(zip(self.heading.dependent_attributes, p))
+                yield dict(zip(self.heading.secondary_attributes, p))
 
         def load_data(self, key, tier=None, batch_size=1, key_order=None, stimulus_types=None, Sampler=None):
             from .stats import Oracle
@@ -647,7 +652,7 @@ class DataConfig(ConfigBase, dj.Lookup):
                              [0.2],
                              ['L2/3'],
                              ['V1']):
-                yield dict(zip(self.heading.dependent_attributes, p))
+                yield dict(zip(self.heading.secondary_attributes, p))
 
         def load_data(self, key, **kwargs):
             return super().load_data(key, balanced=False, **kwargs)
@@ -682,7 +687,7 @@ class DataConfig(ConfigBase, dj.Lookup):
                              [0.2],
                              ['L2/3'],
                              ['V1']):
-                yield dict(zip(self.heading.dependent_attributes, p))
+                yield dict(zip(self.heading.secondary_attributes, p))
 
         def load_data(self, key, **kwargs):
             return super().load_data(key, balanced=True, **kwargs)
@@ -713,7 +718,7 @@ class DataConfig(ConfigBase, dj.Lookup):
                              ['L2/3'],
                              ['V1'],
                              [-3]):
-                yield dict(zip(self.heading.dependent_attributes, p))
+                yield dict(zip(self.heading.secondary_attributes, p))
         
         def load_data(self, key, tier=None, batch_size=1,
                       Sampler=None, t_first=False, cuda=False):

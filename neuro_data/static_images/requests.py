@@ -6,10 +6,18 @@ from .dataset_config import (
     StatsConfig,
 )
 from .data_schemas import StaticScan
-from .ds_pipe import DvScanInfo
+from .ds_pipe import DvScanInfo, DvModelConfig
 import datajoint as dj
 
 schema = dj.schema("neurodata_static")
+
+
+@schema
+class DvScanInfoRequest(dj.Manual):
+    definition = """
+    -> StaticScan
+    -> DvModelConfig
+    """
 
 
 @schema
