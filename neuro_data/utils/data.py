@@ -10,6 +10,9 @@ from tqdm import tqdm
 
 from .. import logger as log
 
+fuse = dj.create_virtual_module('fuse', 'pipeline_fuse')
+stimulus = dj.create_virtual_module('stimulus', 'pipeline_stimulus')
+
 
 def list_hash(values):
     """
@@ -292,8 +295,6 @@ class h5cached:
                 raise ValueError('Can only return one dataset!')
 
             k = (oself & key).fetch1()
-            if k['spike_method'] != 5: # hack to specify spike_method if not default(5)
-                self.file_format = 'static{animal_id}-{session}-{scan_idx}-preproc{preproc_id}-spike_method{spike_method}.h5'
 
             if self.file_format is None:
                 hash = key_hash(dict(k, _class_name=cls.__name__, **kwargs))
