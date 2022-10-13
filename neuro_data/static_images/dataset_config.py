@@ -7,12 +7,15 @@ from neuro_data import logger as log
 from neuro_data.static_images import datasets
 from neuro_data.utils.config import ConfigBase
 from neuro_data.utils.data import h5cached
+from neuro_data.utils.stimuli import frame2_make_mask
 
 from .data_schemas import (
     FF_CLASSES,
     ConditionTier,
     Frame,
     InputResponse,
+    Eye,
+    Treadmill,
     Preprocessing,
     StaticMultiDataset,
     StaticScan,
@@ -39,6 +42,11 @@ class InputConfig(ConfigBase, dj.Lookup):
         content = [
             {"preproc_id": 9},
         ]
+        warning = "NeuroStaticFrame: The output frame format was not compatible with StatsConfig and led to an underestimated std of the images. This part table is deprecated and only kept for record keeping purposes."
+
+        def __new__(cls, *args, **kwargs):
+            log.warning(cls.warning)
+            return super().__new__(cls, *args, **kwargs)
 
         def input(self, scan_key):
             params = (self * Preprocessing).fetch1()
@@ -62,6 +70,53 @@ class InputConfig(ConfigBase, dj.Lookup):
             ), f"Images has shape not supported: {frame.shape}!"
             frame = frame[:, None, ...]
             return trial_idx, cond, frame, np.full(len(trial_idx), "stimulus.Frame")
+
+    class NeuroStaticValidFrame(dj.Part):
+        # only load stimulus_type=='stimulus.Frame'
+        definition = """
+        -> master
+        ---
+        -> Preprocessing
+        """
+        content = [
+            {"preproc_id": 9},
+            {"preproc_id": 0},
+        ]
+
+        def input(self, scan_key):
+            """Load all frames included in InputResponse.Input and filtered by `valid` in Eye and Treadmill"""
+            params = (self * Preprocessing).fetch1()
+            if not (params["gamma"] or params["linear_mon"]):
+                trial_idx, cond, frame, types = (
+                    InputResponse.Input * Frame * stimulus.Condition & scan_key & params
+                ).fetch(
+                    "trial_idx",
+                    "condition_hash",
+                    "frame",
+                    "stimulus_type",
+                    order_by="row_id",  # order by row_id to ensure the order matches Eye and Treadmill
+                )
+                valid_eye = (Eye & scan_key & params).fetch1("valid")
+                valid_treadmill = (Treadmill & scan_key & params).fetch1("valid")
+                valid = valid_eye & valid_treadmill
+                # keep only valid trials
+                trial_idx = trial_idx[valid]
+                cond = cond[valid]
+                frame = np.stack(frame)[valid]
+                types = types[valid]
+                # check if all frames have the same shape
+                assert (
+                    len(frame.shape) == 3
+                    and frame.shape[1] == params["row"]
+                    and frame.shape[2] == params["col"]
+                ), "dimension mismatch, only support 3-D frame (B,H,W)"
+                # adjust frame shape to (B,1,W,H)
+                frame = frame[:, None, ...]
+            else:
+                raise NotImplementedError(
+                    f'InputConfig: gamma={params["gamma"]}, linear_mon={params["linear_mon"]} not implemented!'
+                )
+            return trial_idx, cond, frame, types
 
 
 @schema
@@ -266,7 +321,11 @@ class StatsConfig(ConfigBase, dj.Lookup):
             return ret
 
         def stats(self, condition_hashes, images, responses, tiers):
-
+            assert len(images.shape) == 4, "images dimension must be [B,C,H,W]"
+            assert images.shape[1] == 1, "only support single channel images"
+            assert (
+                images.shape[0] == len(condition_hashes) == len(responses) == len(tiers)
+            ), "number of trials mismatch"
             key = self.fetch1()
             # check if the method is eligible for condition_hashes requested
             assert (
@@ -283,14 +342,6 @@ class StatsConfig(ConfigBase, dj.Lookup):
             assert set(image_classes) <= set(
                 FF_CLASSES
             ), "StatsConfig.NeuroStaticNoBehFrame is only implemented for full-field stimulus"
-
-            # reshape inputs
-            images = np.stack(images)
-            if len(images.shape) == 3:
-                log.info("Adding channel dimension")
-                images = images[:, None, ...]
-            elif len(images.shape) == 4:
-                images = images.transpose(0, 3, 1, 2)
 
             # compute stats
             if key["stats_tier"] in ("train", "validation", "test"):
@@ -309,18 +360,117 @@ class StatsConfig(ConfigBase, dj.Lookup):
             statistics = dict(images=input_statistics, responses=response_statistics)
             return statistics
 
+    class NoBehFullFieldFrame2(dj.Part):
+        # implemented only for full field stimulus with stimulus_type=='stimulus.Frame2'
+        definition = """
+        # mimic the behavior of InputResponse with the corresponding preprocess_id to compute the statistics of input and responses, do not compute stats for behavior variables
+        -> master
+        ---
+        stats_tier="train"                 : enum("train", "test", "validation", "all")               # tier used for computing stats
+        stats_per_input                    : tinyint                                                  # whether to compute stats per input
+        """
+        content = [
+            dict(stats_tier="train", stats_per_input=0),
+        ]
+
+        @staticmethod
+        def run_stats_resp(data, ix, axis=0):
+            ret = {}
+            data = data[ix]
+            ret["all"] = dict(
+                mean=data.mean(axis=axis).astype(np.float32),
+                std=data.std(axis=axis, ddof=1).astype(np.float32),
+                min=data.min(axis=axis).astype(np.float32),
+                max=data.max(axis=axis).astype(np.float32),
+                median=np.median(data, axis=axis).astype(np.float32),
+            )
+            ret["stimulus.Frame2"] = ret["all"]
+            return ret
+
+        def run_stats_input(self, data, info_df, ix, per_input):
+            if per_input:
+                raise NotImplementedError("per_input is not implemented for Frame2")
+            ret = {}
+            data = data[ix]
+            info_df = info_df.loc[ix]
+            from statsmodels.stats.weightstats import DescrStatsW as wstats
+
+            sizes = [d.squeeze().shape for d in data]
+            assert len(set(sizes)) == 1, "All images must have the same size"
+            masks = [
+                frame2_make_mask(
+                    row["aperture_x"],
+                    row["aperture_y"],
+                    row["aperture_r"],
+                    row["aperture_transition"],
+                    sizes[0],
+                )
+                for _, row in info_df.iterrows()
+            ]
+            data_flat = np.hstack([d.flatten() for d in data])
+            data_mask = np.hstack([m.flatten() for m in masks])
+
+            data_mean = wstats(data_flat, data_mask).mean
+            data_std = wstats(data_flat, data_mask).std
+
+            ret["stimulus.Frame2"] = dict(
+                mean=data_mean.astype(np.float32),
+                std=data_std.astype(np.float32),
+                min=data.min().astype(np.float32),
+                max=data.max().astype(np.float32),
+                median=np.median(data).astype(np.float32),  # median isn't computed with correct masking, downstream computation shouldn't use this value.
+            )
+            ret["all"] = ret["stimulus.Frame2"]
+            return ret
+
+        def stats(self, condition_hashes, images, responses, tiers):
+            assert len(images.shape) == 4, "images dimension must be [B,C,H,W]"
+            assert images.shape[1] == 1, "only support single channel images"
+            key = self.fetch1()
+            # check if the method is eligible for condition_hashes requested and collect stimulus info
+            assert (
+                (
+                    stimulus.Condition
+                    & "condition_hash in {}".format(tuple(condition_hashes))
+                ).fetch("stimulus_type")
+                == "stimulus.Frame2"
+            ).all(), "StatsConfig.NeuroStaticNoBehFrame2 is only implemented for stimulus.Frame2"
+            info_df = pd.DataFrame(dict(condition_hash=condition_hashes))
+            info_df = info_df.merge(
+                pd.DataFrame((stimulus.Frame2 & info_df).fetch(as_dict=True)),
+                how="left",
+            )
+            assert not info_df.isna().any().any(), "Missing stimulus info"
+
+            # compute stats
+            if key["stats_tier"] in ("train", "validation", "test"):
+                ix = tiers == key["stats_tier"]
+            elif key["stats_tier"] == "all":
+                ix = np.ones_like(tiers, dtype=bool)
+            else:
+                raise NotImplementedError(
+                    "stats_tier must be one of train, validation, test, all"
+                )
+
+            response_statistics = self.run_stats_resp(responses, ix, axis=0)
+            input_statistics = self.run_stats_input(
+                images, info_df, ix, per_input=key["stats_per_input"]
+            )
+            statistics = dict(images=input_statistics, responses=response_statistics)
+            return statistics
+
 
 @schema
 class DatasetConfig(ConfigBase, dj.Lookup):
     _config_type = "dataset"
 
-    def get_filename(self, key=None):
+    def get_filename(self, key=None, **kwargs):
         key = self.fetch1() if key is None else key
-        return self.part_table(key).get_filename()
+        return self.part_table(key).get_filename(**kwargs)
 
     def compute_data(self, key=None):
-        key = self.fetch1() if key is None else key
-        self.part_table(key).compute_data()
+        key = self.fetch1() if key is None else (self & key).fetch1()
+        return self.part_table(key).compute_data(key)
 
     @h5cached(
         "/external/cache/dynamic-static",
@@ -342,6 +492,15 @@ class DatasetConfig(ConfigBase, dj.Lookup):
         """
 
         data_names = ["images", "responses"]
+
+        def describe(self, key):
+            input_type = (InputConfig() & key).fetch1("input_type")
+            tier_type = (TierConfig() & key).fetch1("tier_type")
+            layer_type = (LayerConfig() & key).fetch1("layer_type")
+            area_type = (AreaConfig() & key).fetch1("area_type")
+            stats_type = (StatsConfig() & key).fetch1("stats_type")
+            desc = f"DvScanInfo|StaticScan|InputConfig.{input_type}|TierConfig.{tier_type}|LayerConfig.{layer_type}|AreaConfig.{area_type}|StatsConfig.{stats_type}"
+            return desc
 
         @property
         def content(self):
@@ -366,16 +525,7 @@ class DatasetConfig(ConfigBase, dj.Lookup):
             return f'{group_id}-{key["animal_id"]}-{key["dynamic_session"]}-{key["dynamic_scan_idx"]}-{key["static_session"]}-{key["static_scan_idx"]}'
 
         def compute_data(self, key=None):
-            key = self.fetch1() if key is None else key
-            dynamic_scan = (
-                DvScanInfo
-                & {
-                    **key,
-                    "animal_id": key["animal_id"],
-                    "session": key["dynamic_session"],
-                    "scan_idx": key["dynamic_scan_idx"],
-                }
-            ).fetch1("KEY")
+            key = self.fetch1() if key is None else (self & key).fetch1()
             static_scan = (
                 StaticScan()
                 & {
@@ -385,16 +535,25 @@ class DatasetConfig(ConfigBase, dj.Lookup):
                     "scan_idx": key["static_scan_idx"],
                 }
             ).fetch1("KEY")
+            dynamic_scan = (
+                DvScanInfo()
+                & {
+                    **key,
+                    "animal_id": key["animal_id"],
+                    "session": key["dynamic_session"],
+                    "scan_idx": key["dynamic_scan_idx"],
+                }
+            ).fetch1("KEY")
             log.info("Fecthing images")
             trial_idx, condition_hashes, images, types = (
                 InputConfig().part_table(key).input(static_scan)
             )
             log.info("Fetching responses")
-            responses = (DvScanInfo & key).responses(
+            responses = (DvScanInfo & dynamic_scan).responses(
                 trial_idx=trial_idx,
                 condition_hashes=condition_hashes,
             )
-            dynamic_unit_keys = (DvScanInfo & key).unit_keys()
+            dynamic_unit_keys = (DvScanInfo & dynamic_scan).unit_keys()
             log.info("Fecthing tiers")
             tiers = TierConfig().part_table(key).tier(static_scan, condition_hashes)
             log.info("Fecthing layer information")
@@ -487,6 +646,14 @@ class MultiDataset(dj.Manual):
         return StaticMultiDataset.fetch("group_id").max() + 1
 
     def fill(self, member_key, description):
+        # check if dataset is already in MultiDataset
+        existing_dataset = MultiDataset().aggr(
+            MultiDataset.Member & member_key,
+            n_dataset="count(*)"
+        ) & f'n_dataset={len(DatasetConfig & member_key)}'
+        if existing_dataset:
+            print(f'Dataset already exists in MultiDataset: {existing_dataset.fetch1("KEY")}')
+            return
         key = dict(
             group_id=self.next_group_id,
             description="Inserted with MultiDataset: " + description,
