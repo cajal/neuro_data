@@ -15,7 +15,7 @@ dj.config['stores'] = dict(
   **dj.config.setdefault('stores', {}),
   data=dict(
         protocol='file', 
-        location='/external'),
+        location='/dj-stor01'),
 )
 
 experiment = dj.create_virtual_module('experiment', 'pipeline_experiment')
