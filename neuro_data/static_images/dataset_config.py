@@ -71,6 +71,45 @@ class InputConfig(ConfigBase, dj.Lookup):
             frame = frame[:, None, ...]
             return trial_idx, cond, frame, np.full(len(trial_idx), "stimulus.Frame")
 
+    class NeuroStaticFrameCorrected(dj.Part):
+        # only load stimulus_type=='stimulus.Frame'
+        definition = """
+        -> master
+        ---
+        -> Preprocessing
+        """
+        content = [
+            {"preproc_id": 0},
+        ]
+
+        def input(self, scan_key):
+            params = (self * Preprocessing).fetch1()
+            if not (params["gamma"] or params["linear_mon"]):
+                trial_idx, cond, frame, types = (
+                    InputResponse.Input * Frame * stimulus.Condition & scan_key & params
+                ).fetch(
+                    "trial_idx",
+                    "condition_hash",
+                    "frame",
+                    "stimulus_type",
+                    order_by="row_id",  # order by row_id to ensure the order matches Eye and Treadmill
+                )
+                # reshape inputs
+                frame = np.stack(frame)
+                # check if all frames have the same shape
+                assert (
+                    len(frame.shape) == 3
+                    and frame.shape[1] == params["row"]
+                    and frame.shape[2] == params["col"]
+                ), "dimension mismatch, only support 3-D frame (B,H,W)"
+                # adjust frame shape to (B,1,W,H)
+                frame = frame[:, None, ...]
+            else:
+                raise NotImplementedError(
+                    f'InputConfig: gamma={params["gamma"]}, linear_mon={params["linear_mon"]} not implemented!'
+                )
+            return trial_idx, cond, frame, types
+
     class NeuroStaticValidFrame(dj.Part):
         # only load stimulus_type=='stimulus.Frame'
         definition = """
@@ -593,6 +632,126 @@ class DatasetConfig(ConfigBase, dj.Lookup):
                 statistics=statistics,
             )
 
+    @h5cached(
+        "/external/cache/dynamic-static-diff-animal",
+        mode="array",
+        transfer_to_tmp=False,
+        file_format="dynamic-static-{dynamic_animal_id}-{dynamic_session}-{dynamic_scan_idx}-{static_animal_id}-{static_session}-{static_scan_idx}-{dataset_hash}.h5",
+    )
+    class DvStaticNoBehDiffAnimal(dj.Part):
+        definition = """ # dynamic model responses to static images shown in a static scan, units in the dataset are from the dynamic scan
+        -> master
+        ---
+        -> DvScanInfo.proj(dynamic_animal_id='animal_id', dynamic_session='session', dynamic_scan_idx='scan_idx')
+        -> StaticScan.proj(static_animal_id='animal_id', static_session='session', static_scan_idx='scan_idx')
+        -> InputConfig
+        -> TierConfig
+        -> LayerConfig
+        -> AreaConfig
+        -> StatsConfig
+        """
+
+        data_names = ["images", "responses"]
+
+        def describe(self, key):
+            input_type = (InputConfig() & key).fetch1("input_type")
+            tier_type = (TierConfig() & key).fetch1("tier_type")
+            layer_type = (LayerConfig() & key).fetch1("layer_type")
+            area_type = (AreaConfig() & key).fetch1("area_type")
+            stats_type = (StatsConfig() & key).fetch1("stats_type")
+            desc = f"DvScanInfo|StaticScan|InputConfig.{input_type}|TierConfig.{tier_type}|LayerConfig.{layer_type}|AreaConfig.{area_type}|StatsConfig.{stats_type}"
+            return desc
+
+        @property
+        def content(self):
+            from . import requests
+
+            return requests.DynamicStaticNoBehDiffAnimalRequest
+
+        @property
+        def static_scan(self):
+            """returns the scan that would be injected into InputResponse, the scan key should match the scan key returned by compute_data"""
+            return (
+                StaticScan
+                & self.proj(...,animal_id='dynamic_animal_id', session="dynamic_session", scan_idx="dynamic_scan_idx")
+            ).fetch1("KEY")
+
+        @property
+        def preprocessing(self):
+            return (Preprocessing & "preproc_id=8").fetch1("KEY")
+
+        def name(self, group_id, key=None, **kwargs):
+            key = self.fetch1() if key is None else key
+            return f'{group_id}-{key["dynamic_animal_id"]}-{key["dynamic_session"]}-{key["dynamic_scan_idx"]}-{key["static_animal_id"]}-{key["static_session"]}-{key["static_scan_idx"]}'
+
+        def compute_data(self, key=None):
+            key = self.fetch1() if key is None else (self & key).fetch1()
+            static_scan = (
+                StaticScan()
+                & {
+                    **key,
+                    "animal_id": key["static_animal_id"],
+                    "session": key["static_session"],
+                    "scan_idx": key["static_scan_idx"],
+                }
+            ).fetch1("KEY")
+            dynamic_scan = (
+                DvScanInfo()
+                & {
+                    **key,
+                    "animal_id": key["dynamic_animal_id"],
+                    "session": key["dynamic_session"],
+                    "scan_idx": key["dynamic_scan_idx"],
+                }
+            ).fetch1("KEY")
+            log.info("Fecthing images")
+            trial_idx, condition_hashes, images, types = (
+                InputConfig().part_table(key).input(static_scan)
+            )
+            log.info("Fetching responses")
+            responses = (DvScanInfo & dynamic_scan).responses(
+                trial_idx=trial_idx,
+                condition_hashes=condition_hashes,
+            )
+            dynamic_unit_keys = (DvScanInfo & dynamic_scan).unit_keys()
+            log.info("Fecthing tiers")
+            tiers = TierConfig().part_table(key).tier(static_scan, condition_hashes)
+            log.info("Fecthing layer information")
+            layer = LayerConfig().part_table(key).layer(dynamic_unit_keys)
+            log.info("Fecthing area information")
+            area = AreaConfig().part_table(key).area(dynamic_unit_keys)
+            log.info("Computing stats")
+            statistics = (
+                StatsConfig()
+                .part_table(key)
+                .stats(condition_hashes, images, responses, tiers)
+            )
+            neurons = dict(
+                unit_ids=np.array([k["unit_id"] for k in dynamic_unit_keys]).astype(
+                    np.uint16
+                ),
+                animal_ids=np.array([k["animal_id"] for k in dynamic_unit_keys]).astype(
+                    np.uint16
+                ),
+                sessions=np.array([k["session"] for k in dynamic_unit_keys]).astype(
+                    np.uint8
+                ),
+                scan_idx=np.array([k["scan_idx"] for k in dynamic_unit_keys]).astype(
+                    np.uint8
+                ),
+                layer=layer.astype("S"),
+                area=area.astype("S"),
+            )
+            return dict(
+                images=images,
+                responses=responses,
+                types=types.astype("S"),
+                condition_hashes=condition_hashes.astype("S"),
+                trial_idx=trial_idx.astype(np.uint32),
+                neurons=neurons,
+                tiers=tiers.astype("S"),
+                statistics=statistics,
+            )
 
 @schema
 class DatasetInputResponse(dj.Computed):
