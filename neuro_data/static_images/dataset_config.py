@@ -663,7 +663,7 @@ class DatasetConfig(ConfigBase, dj.Lookup):
             )
 
     @h5cached(
-    "/external/cache/dynamic-static",
+    "/dj-stor01/cache/dynamic-static",
     mode="array",
     transfer_to_tmp=False,
     file_format="dynamic-static-{animal_id}-{dynamic_session}-{dynamic_scan_idx}-{static_session}-{static_scan_idx}-{dataset_hash}.h5",
