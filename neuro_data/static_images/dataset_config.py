@@ -1,8 +1,10 @@
 from collections import OrderedDict
+from re import T
 
 import datajoint as dj
 import numpy as np
 import pandas as pd
+from tqdm import tqdm
 from neuro_data import logger as log
 from neuro_data.static_images import datasets
 from neuro_data.utils.config import ConfigBase
@@ -157,6 +159,73 @@ class InputConfig(ConfigBase, dj.Lookup):
                 )
             return trial_idx, cond, frame, types
 
+## Sample from the continuous analogue of a Poisson distribution with mean = Lambda
+def poisson_pdf(x, Lambda):
+    import math
+    return (Lambda**x) * (np.e**(-Lambda)) /np.array([math.gamma(i+1) for i in x])
+def poisson_cdf(x, Lambda):
+    temp = poisson_pdf(x, Lambda)
+    return np.cumsum(temp / temp.sum())
+def poisson_sample(Lambda, size=1, a_min=0, a_max=150, n=1000):
+    from scipy.interpolate import interp1d
+    x = np.linspace(a_min, a_max-1, n)
+    cdf = poisson_cdf(x, Lambda)
+    f = interp1d(cdf, x, bounds_error=False, fill_value=(1e-6, max(x)))
+    return f(np.random.random(size))
+def normal_sample(mean, size=1):
+    return np.random.normal(mean, np.sqrt(mean), size)
+def sampling(resp):
+    if resp <= 100:
+        return poisson_sample(resp).item()
+    else:
+        return normal_sample(resp).item()
+
+@schema
+class ResponseConfig(ConfigBase, dj.Lookup):
+    _config_type = "response"
+
+    def response(self, scan_key):
+        self.part_table().response(scan_key)
+
+    class NoNoise(dj.Part):
+        definition = """
+        -> master
+        ---
+        """
+        content = [
+            {},
+        ]
+
+        def response(self, scan_key, trial_idx, condition_hashes):
+            responses = (DvScanInfo & scan_key).responses(
+                        trial_idx=trial_idx,
+                        condition_hashes=condition_hashes,
+                        )
+            return responses
+
+    class ContPoissonNoise(dj.Part):
+        definition = """
+        -> master
+        ---
+        """
+        content = [
+            {},
+        ]
+
+        def response(self, scan_key, trial_idx, condition_hashes):
+            responses = (DvScanInfo & scan_key).responses(
+                        trial_idx=trial_idx,
+                        condition_hashes=condition_hashes,
+                        )
+            import os
+            from multiprocessing import Pool
+            n = os.cpu_count()
+            r_shape = responses.shape
+            responses = responses.ravel()
+            with Pool(n) as p:
+                responses_noisy = list(tqdm(p.imap(sampling, responses)))
+
+            return np.array(responses_noisy).reshape(*r_shape)
 
 @schema
 class BehaviorConfig(ConfigBase, dj.Lookup):
@@ -705,18 +774,19 @@ class DatasetConfig(ConfigBase, dj.Lookup):
             )
 
     @h5cached(
-        "/external/cache/dynamic-static-diff-animal",
-        mode="array",
-        transfer_to_tmp=False,
-        file_format="dynamic-static-{dynamic_animal_id}-{dynamic_session}-{dynamic_scan_idx}-{static_animal_id}-{static_session}-{static_scan_idx}-{dataset_hash}.h5",
+    "/dj-stor01/cache/dynamic-static",
+    mode="array",
+    transfer_to_tmp=False,
+    file_format="dynamic-static-{animal_id}-{dynamic_session}-{dynamic_scan_idx}-{static_session}-{static_scan_idx}-{dataset_hash}.h5",
     )
-    class DvStaticNoBehDiffAnimal(dj.Part):
-        definition = """ # dynamic model responses to static images shown in a static scan, units in the dataset are from the dynamic scan
+    class DvStaticNoBehAugResp(dj.Part):
+        definition = """ # DvStaticNoBeh with augmented responses (e.g. noisy responses)
         -> master
         ---
-        -> DvScanInfo.proj(dynamic_animal_id='animal_id', dynamic_session='session', dynamic_scan_idx='scan_idx')
-        -> StaticScan.proj(static_animal_id='animal_id', static_session='session', static_scan_idx='scan_idx')
+        -> DvScanInfo.proj(dynamic_session='session', dynamic_scan_idx='scan_idx')
+        -> StaticScan.proj(static_session='session', static_scan_idx='scan_idx')
         -> InputConfig
+        -> ResponseConfig
         -> TierConfig
         -> LayerConfig
         -> AreaConfig
@@ -727,30 +797,26 @@ class DatasetConfig(ConfigBase, dj.Lookup):
 
         def describe(self, key):
             input_type = (InputConfig() & key).fetch1("input_type")
+            response_type = (ResponseConfig() & key).fetch1("response_type")
             tier_type = (TierConfig() & key).fetch1("tier_type")
             layer_type = (LayerConfig() & key).fetch1("layer_type")
             area_type = (AreaConfig() & key).fetch1("area_type")
             stats_type = (StatsConfig() & key).fetch1("stats_type")
-            desc = f"DvScanInfo|StaticScan|InputConfig.{input_type}|TierConfig.{tier_type}|LayerConfig.{layer_type}|AreaConfig.{area_type}|StatsConfig.{stats_type}"
+            desc = f"DvScanInfo|StaticScan|InputConfig.{input_type}|ResponseConfig.{response_type}|TierConfig.{tier_type}|LayerConfig.{layer_type}|AreaConfig.{area_type}|StatsConfig.{stats_type}"
             return desc
 
         @property
         def content(self):
             from . import requests
 
-            return requests.DynamicStaticNoBehDiffAnimalRequest
+            return requests.DynamicStaticNoBehAugRespRequest
 
         @property
         def static_scan(self):
             """returns the scan that would be injected into InputResponse, the scan key should match the scan key returned by compute_data"""
             return (
                 StaticScan
-                & self.proj(
-                    ...,
-                    animal_id="dynamic_animal_id",
-                    session="dynamic_session",
-                    scan_idx="dynamic_scan_idx",
-                )
+                & self.proj(..., session="dynamic_session", scan_idx="dynamic_scan_idx")
             ).fetch1("KEY")
 
         @property
@@ -759,7 +825,7 @@ class DatasetConfig(ConfigBase, dj.Lookup):
 
         def name(self, group_id, key=None, **kwargs):
             key = self.fetch1() if key is None else key
-            return f'{group_id}-{key["dynamic_animal_id"]}-{key["dynamic_session"]}-{key["dynamic_scan_idx"]}-{key["static_animal_id"]}-{key["static_session"]}-{key["static_scan_idx"]}'
+            return f'{group_id}-{key["animal_id"]}-{key["dynamic_session"]}-{key["dynamic_scan_idx"]}-{key["static_session"]}-{key["static_scan_idx"]}'
 
         def compute_data(self, key=None):
             key = self.fetch1() if key is None else (self & key).fetch1()
@@ -767,7 +833,7 @@ class DatasetConfig(ConfigBase, dj.Lookup):
                 StaticScan()
                 & {
                     **key,
-                    "animal_id": key["static_animal_id"],
+                    "animal_id": key["animal_id"],
                     "session": key["static_session"],
                     "scan_idx": key["static_scan_idx"],
                 }
@@ -776,7 +842,7 @@ class DatasetConfig(ConfigBase, dj.Lookup):
                 DvScanInfo()
                 & {
                     **key,
-                    "animal_id": key["dynamic_animal_id"],
+                    "animal_id": key["animal_id"],
                     "session": key["dynamic_session"],
                     "scan_idx": key["dynamic_scan_idx"],
                 }
@@ -786,10 +852,12 @@ class DatasetConfig(ConfigBase, dj.Lookup):
                 InputConfig().part_table(key).input(static_scan)
             )
             log.info("Fetching responses")
-            responses = (DvScanInfo & dynamic_scan).responses(
-                trial_idx=trial_idx,
-                condition_hashes=condition_hashes,
-            )
+            responses = ResponseConfig().part_table(key).response(dynamic_scan, trial_idx, condition_hashes)
+
+            # (DvScanInfo & dynamic_scan).responses(
+            #     trial_idx=trial_idx,
+            #     condition_hashes=condition_hashes,
+            # )
             dynamic_unit_keys = (DvScanInfo & dynamic_scan).unit_keys()
             log.info("Fecthing tiers")
             tiers = TierConfig().part_table(key).tier(static_scan, condition_hashes)
@@ -829,6 +897,9 @@ class DatasetConfig(ConfigBase, dj.Lookup):
                 tiers=tiers.astype("S"),
                 statistics=statistics,
             )
+
+
+
 
 
 @schema
