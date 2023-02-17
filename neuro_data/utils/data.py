@@ -335,21 +335,12 @@ class h5cached:
 
             return data
 
-        def get_filename(oself, key=None, recompute=False, **kwargs):
+        def get_filename(oself, key=None, **kwargs):
             filename = oself._get_filename(key, **kwargs)
             if not os.path.isfile(filename):
                 print('Computing data and saving to', filename, flush=True)
                 data = oself.compute_data(key, **kwargs)
                 save_dict_to_hdf5(data, filename)
-            elif recompute:
-                delete = input(f'Delete existing cache file {filename} and recompute? (Y/n):')
-                if delete == 'Y':
-                    os.remove(filename)
-                    print('Recomputing data and saving to', filename, flush=True)
-                    data = oself.compute_data(key, **kwargs)
-                    save_dict_to_hdf5(data, filename)
-                else:
-                    print('Returning existing file', filename, flush=True)
             return filename
 
         cls.fetch1_data = fetch1_data

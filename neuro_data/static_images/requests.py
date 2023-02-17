@@ -7,18 +7,10 @@ from .dataset_config import (
     StatsConfig,
 )
 from .data_schemas import StaticScan
-from .ds_pipe import DvScanInfo, DvModelConfig
+from .ds_pipe import DvScanInfo
 import datajoint as dj
 
 schema = dj.schema("neurodata_static")
-
-
-@schema
-class DvScanInfoRequest(dj.Manual):
-    definition = """
-    -> StaticScan
-    -> DvModelConfig
-    """
 
 
 @schema
@@ -32,6 +24,7 @@ class DynamicStaticNoBehRequest(dj.Manual):
     -> AreaConfig
     -> StatsConfig
     """
+<<<<<<< HEAD
 
 @schema
 class DynamicStaticNoBehAugRespRequest(dj.Manual):
@@ -45,3 +38,5 @@ class DynamicStaticNoBehAugRespRequest(dj.Manual):
     -> AreaConfig
     -> StatsConfig
     """
+=======
+>>>>>>> parent of 87497e9 (Merge branch 'master' of github.com:cajal/neuro_data)
