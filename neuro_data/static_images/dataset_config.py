@@ -73,6 +73,45 @@ class InputConfig(ConfigBase, dj.Lookup):
             frame = frame[:, None, ...]
             return trial_idx, cond, frame, np.full(len(trial_idx), "stimulus.Frame")
 
+    class NeuroStaticFrameCorrected(dj.Part):
+        # only load stimulus_type=='stimulus.Frame'
+        definition = """
+        -> master
+        ---
+        -> Preprocessing
+        """
+        content = [
+            {"preproc_id": 0},
+        ]
+
+        def input(self, scan_key):
+            params = (self * Preprocessing).fetch1()
+            if not (params["gamma"] or params["linear_mon"]):
+                trial_idx, cond, frame, types = (
+                    InputResponse.Input * Frame * stimulus.Condition & scan_key & params
+                ).fetch(
+                    "trial_idx",
+                    "condition_hash",
+                    "frame",
+                    "stimulus_type",
+                    order_by="row_id",  # order by row_id to ensure the order matches Eye and Treadmill
+                )
+                # reshape inputs
+                frame = np.stack(frame)
+                # check if all frames have the same shape
+                assert (
+                    len(frame.shape) == 3
+                    and frame.shape[1] == params["row"]
+                    and frame.shape[2] == params["col"]
+                ), "dimension mismatch, only support 3-D frame (B,H,W)"
+                # adjust frame shape to (B,1,W,H)
+                frame = frame[:, None, ...]
+            else:
+                raise NotImplementedError(
+                    f'InputConfig: gamma={params["gamma"]}, linear_mon={params["linear_mon"]} not implemented!'
+                )
+            return trial_idx, cond, frame, types
+
     class NeuroStaticValidFrame(dj.Part):
         # only load stimulus_type=='stimulus.Frame'
         definition = """
@@ -273,6 +312,45 @@ class LayerConfig(ConfigBase, dj.Lookup):
             assert unit_df.layer.notnull().all(), "Missing layer for some units!"
             return unit_df.layer.values
 
+    class MinnieUnitStackLayer(dj.Part):
+        minnie_data_source = dj.create_virtual_module(
+            "minnie_data_source", "microns_minnie_data_source"
+        )
+
+        @property
+        def definition(self):
+            return """
+            -> master
+            ---
+            -> self.minnie_data_source.UnitLayerBoundaries
+            """
+
+        content = minnie_data_source.UnitLayerBoundaries.proj().fetch(as_dict=True)
+
+        def layer(self, unit_keys):
+            unit_layer_df = pd.DataFrame(
+                (
+                    self.minnie_data_source.UnitStackLayer.proj(
+                        ..., session="scan_session"
+                    )
+                    & self
+                    & unit_keys
+                ).fetch(
+                    "animal_id",
+                    "session",
+                    "scan_idx",
+                    "unit_id",
+                    "cortical_layer",
+                    as_dict=True,
+                )
+            )
+            unit_df = pd.DataFrame(unit_keys)
+            unit_df = unit_df.merge(unit_layer_df, how="left", validate="1:1")
+            assert (
+                unit_df.cortical_layer.notnull().all()
+            ), "Missing layer for some units!"
+            return unit_df.cortical_layer.values
+
     class Constant(dj.Part):
         definition = """
         -> master
@@ -319,8 +397,39 @@ class AreaConfig(ConfigBase, dj.Lookup):
             )
             unit_df = pd.DataFrame(unit_keys)
             unit_df = unit_df.merge(unit_area_df, how="left")
-            assert unit_df.area.notnull().all(), "Missing area for some units!"
-            return unit_df.area.values
+            assert unit_df.brain_area.notnull().all(), "Missing area for some units!"
+            return unit_df.brain_area.values
+
+    class MinnieUnitSource(dj.Part):
+        definition = """
+        -> master
+        ---
+        """
+        content = [
+            {},
+        ]
+
+        def area(self, unit_keys):
+            minnie_nda = dj.create_virtual_module("minnie_nda", "microns_minnie_nda")
+            unit_df = pd.DataFrame(unit_keys)
+            unit_area_df = pd.DataFrame(
+                (
+                    (
+                        minnie_nda.UnitSource().proj(..., session="scan_session")
+                        & unit_df
+                    ).fetch(
+                        "animal_id",
+                        "session",
+                        "scan_idx",
+                        "brain_area",
+                        "unit_id",
+                        as_dict=True,
+                    )
+                )
+            )
+            unit_df = unit_df.merge(unit_area_df, how="left", validate="1:1")
+            assert unit_df.brain_area.notnull().all(), "Missing area for some units!"
+            return unit_df.brain_area.values
 
     class Constant(dj.Part):
         definition = """
@@ -487,7 +596,9 @@ class StatsConfig(ConfigBase, dj.Lookup):
                 std=data_std.astype(np.float32),
                 min=data.min().astype(np.float32),
                 max=data.max().astype(np.float32),
-                median=np.median(data).astype(np.float32),  # median isn't computed with correct masking, downstream computation shouldn't use this value.
+                median=np.median(data).astype(
+                    np.float32
+                ),  # median isn't computed with correct masking, downstream computation shouldn't use this value.
             )
             ret["all"] = ret["stimulus.Frame2"]
             return ret
@@ -663,6 +774,7 @@ class DatasetConfig(ConfigBase, dj.Lookup):
             )
 
     @h5cached(
+<<<<<<< HEAD
     "/dj-stor01/cache/dynamic-static",
     mode="array",
     transfer_to_tmp=False,
@@ -676,6 +788,20 @@ class DatasetConfig(ConfigBase, dj.Lookup):
         -> StaticScan.proj(static_session='session', static_scan_idx='scan_idx')
         -> InputConfig
         -> ResponseConfig
+=======
+        "/external/cache/dynamic-static-diff-animal",
+        mode="array",
+        transfer_to_tmp=False,
+        file_format="dynamic-static-{dynamic_animal_id}-{dynamic_session}-{dynamic_scan_idx}-{static_animal_id}-{static_session}-{static_scan_idx}-{dataset_hash}.h5",
+    )
+    class DvStaticNoBehDiffAnimal(dj.Part):
+        definition = """ # dynamic model responses to static images shown in a static scan, units in the dataset are from the dynamic scan
+        -> master
+        ---
+        -> DvScanInfo.proj(dynamic_animal_id='animal_id', dynamic_session='session', dynamic_scan_idx='scan_idx')
+        -> StaticScan.proj(static_animal_id='animal_id', static_session='session', static_scan_idx='scan_idx')
+        -> InputConfig
+>>>>>>> 409c43759663c894e6160911c92b1c61b0449ae4
         -> TierConfig
         -> LayerConfig
         -> AreaConfig
@@ -686,26 +812,46 @@ class DatasetConfig(ConfigBase, dj.Lookup):
 
         def describe(self, key):
             input_type = (InputConfig() & key).fetch1("input_type")
+<<<<<<< HEAD
             response_type = (ResponseConfig() & key).fetch1("response_type")
+=======
+>>>>>>> 409c43759663c894e6160911c92b1c61b0449ae4
             tier_type = (TierConfig() & key).fetch1("tier_type")
             layer_type = (LayerConfig() & key).fetch1("layer_type")
             area_type = (AreaConfig() & key).fetch1("area_type")
             stats_type = (StatsConfig() & key).fetch1("stats_type")
+<<<<<<< HEAD
             desc = f"DvScanInfo|StaticScan|InputConfig.{input_type}|ResponseConfig.{response_type}|TierConfig.{tier_type}|LayerConfig.{layer_type}|AreaConfig.{area_type}|StatsConfig.{stats_type}"
+=======
+            desc = f"DvScanInfo|StaticScan|InputConfig.{input_type}|TierConfig.{tier_type}|LayerConfig.{layer_type}|AreaConfig.{area_type}|StatsConfig.{stats_type}"
+>>>>>>> 409c43759663c894e6160911c92b1c61b0449ae4
             return desc
 
         @property
         def content(self):
             from . import requests
 
+<<<<<<< HEAD
             return requests.DynamicStaticNoBehAugRespRequest
+=======
+            return requests.DynamicStaticNoBehDiffAnimalRequest
+>>>>>>> 409c43759663c894e6160911c92b1c61b0449ae4
 
         @property
         def static_scan(self):
             """returns the scan that would be injected into InputResponse, the scan key should match the scan key returned by compute_data"""
             return (
                 StaticScan
+<<<<<<< HEAD
                 & self.proj(..., session="dynamic_session", scan_idx="dynamic_scan_idx")
+=======
+                & self.proj(
+                    ...,
+                    animal_id="dynamic_animal_id",
+                    session="dynamic_session",
+                    scan_idx="dynamic_scan_idx",
+                )
+>>>>>>> 409c43759663c894e6160911c92b1c61b0449ae4
             ).fetch1("KEY")
 
         @property
@@ -714,7 +860,11 @@ class DatasetConfig(ConfigBase, dj.Lookup):
 
         def name(self, group_id, key=None, **kwargs):
             key = self.fetch1() if key is None else key
+<<<<<<< HEAD
             return f'{group_id}-{key["animal_id"]}-{key["dynamic_session"]}-{key["dynamic_scan_idx"]}-{key["static_session"]}-{key["static_scan_idx"]}'
+=======
+            return f'{group_id}-{key["dynamic_animal_id"]}-{key["dynamic_session"]}-{key["dynamic_scan_idx"]}-{key["static_animal_id"]}-{key["static_session"]}-{key["static_scan_idx"]}'
+>>>>>>> 409c43759663c894e6160911c92b1c61b0449ae4
 
         def compute_data(self, key=None):
             key = self.fetch1() if key is None else (self & key).fetch1()
@@ -722,7 +872,11 @@ class DatasetConfig(ConfigBase, dj.Lookup):
                 StaticScan()
                 & {
                     **key,
+<<<<<<< HEAD
                     "animal_id": key["animal_id"],
+=======
+                    "animal_id": key["static_animal_id"],
+>>>>>>> 409c43759663c894e6160911c92b1c61b0449ae4
                     "session": key["static_session"],
                     "scan_idx": key["static_scan_idx"],
                 }
@@ -731,7 +885,11 @@ class DatasetConfig(ConfigBase, dj.Lookup):
                 DvScanInfo()
                 & {
                     **key,
+<<<<<<< HEAD
                     "animal_id": key["animal_id"],
+=======
+                    "animal_id": key["dynamic_animal_id"],
+>>>>>>> 409c43759663c894e6160911c92b1c61b0449ae4
                     "session": key["dynamic_session"],
                     "scan_idx": key["dynamic_scan_idx"],
                 }
@@ -741,12 +899,19 @@ class DatasetConfig(ConfigBase, dj.Lookup):
                 InputConfig().part_table(key).input(static_scan)
             )
             log.info("Fetching responses")
+<<<<<<< HEAD
             responses = ResponseConfig().part_table(key).response(dynamic_scan, trial_idx, condition_hashes)
 
             # (DvScanInfo & dynamic_scan).responses(
             #     trial_idx=trial_idx,
             #     condition_hashes=condition_hashes,
             # )
+=======
+            responses = (DvScanInfo & dynamic_scan).responses(
+                trial_idx=trial_idx,
+                condition_hashes=condition_hashes,
+            )
+>>>>>>> 409c43759663c894e6160911c92b1c61b0449ae4
             dynamic_unit_keys = (DvScanInfo & dynamic_scan).unit_keys()
             log.info("Fecthing tiers")
             tiers = TierConfig().part_table(key).tier(static_scan, condition_hashes)
@@ -787,8 +952,11 @@ class DatasetConfig(ConfigBase, dj.Lookup):
                 statistics=statistics,
             )
 
+<<<<<<< HEAD
 
 
+=======
+>>>>>>> 409c43759663c894e6160911c92b1c61b0449ae4
 
 @schema
 class DatasetInputResponse(dj.Computed):
@@ -843,12 +1011,14 @@ class MultiDataset(dj.Manual):
 
     def fill(self, member_key, description):
         # check if dataset is already in MultiDataset
-        existing_dataset = MultiDataset().aggr(
-            MultiDataset.Member & member_key,
-            n_dataset="count(*)"
-        ) & f'n_dataset={len(DatasetConfig & member_key)}'
+        existing_dataset = (
+            MultiDataset().aggr(MultiDataset.Member & member_key, n_dataset="count(*)")
+            & f"n_dataset={len(DatasetConfig & member_key)}"
+        )
         if existing_dataset:
-            print(f'Dataset already exists in MultiDataset: {existing_dataset.fetch1("KEY")}')
+            print(
+                f'Dataset already exists in MultiDataset: {existing_dataset.fetch1("KEY")}'
+            )
             return
         key = dict(
             group_id=self.next_group_id,
