@@ -244,7 +244,10 @@ class LayerConfig(ConfigBase, dj.Lookup):
             return unit_df.layer.values
 
     class MinnieUnitStackLayer(dj.Part):
-        minnie_data_source = dj.create_virtual_module(
+        from functools import cached_property
+        @cached_property
+        def minnie_data_source(self):
+            return dj.create_virtual_module(
             "minnie_data_source", "microns_minnie_data_source"
         )
 
@@ -256,7 +259,9 @@ class LayerConfig(ConfigBase, dj.Lookup):
             -> self.minnie_data_source.UnitLayerBoundaries
             """
 
-        content = minnie_data_source.UnitLayerBoundaries.proj().fetch(as_dict=True)
+        @property
+        def content(self):
+            return self.minnie_data_source.UnitLayerBoundaries.proj().fetch(as_dict=True)
 
         def layer(self, unit_keys):
             unit_layer_df = pd.DataFrame(
