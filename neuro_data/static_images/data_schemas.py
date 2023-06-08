@@ -481,7 +481,7 @@ class Frame(dj.Computed):
 
 
 @h5cached('/external/cache/', mode='array', transfer_to_tmp=False,
-          file_format='static{animal_id}-{session}-{scan_idx}-preproc{preproc_id}.h5')
+          file_format='static{animal_id}-{session}-{scan_idx}-preproc{preproc_id}-spikemethod{spike_method}.h5')
 @schema
 class InputResponse(dj.Computed, FilterMixin):
     definition = """
@@ -830,7 +830,7 @@ class InputResponse(dj.Computed, FilterMixin):
         log.info('Computing statistics on {} dataset(s)'.format(preproc_params['norm_tier']))
         ix = np.arange(len(tiers)) if preproc_params['norm_tier'] == 'all' else tiers == preproc_params['norm_tier']
         response_statistics = run_stats(lambda ix: responses[ix], types, ix, axis=0)
-        input_statistics = run_stats_input(lambda ix: images[ix], types, ix, axis=0, per_input=preproc_params['stats_per_input']) 
+        input_statistics = run_stats_input(lambda ix: images[ix], types, ix, per_input=preproc_params['stats_per_input']) 
 
         statistics = dict(
             images=input_statistics,
