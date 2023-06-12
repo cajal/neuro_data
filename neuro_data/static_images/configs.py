@@ -444,13 +444,18 @@ class DataConfig(ConfigBase, dj.Lookup):
 
         @property
         def content(self):
-            for p in product(['all'],
-                             ['stimulus.Frame', '~stimulus.Frame', 'stimulus.ColorFrameProjector'],
-                             ['images,responses', ''],
-                             [True],
-                             [True, False],
-                             ['L4', 'L2/3', 'L6'],
-                             ['V1', 'LM']):
+            for p in [
+                *product(
+                    ["all"],
+                    ["stimulus.Frame", "~stimulus.Frame", "stimulus.ColorFrameProjector"],
+                    ["images,responses", ""],
+                    [True],
+                    [True, False],
+                    ["L4", "L2/3", "L6"],
+                    ["V1", "LM"],
+                ),
+                ["all", "stimulus.Frame2", "", True, False, "L2/3", "V1"],
+            ]:
                 yield dict(zip(self.heading.secondary_attributes, p))
 
     class ModeledAreaLayer(dj.Part, AreaLayerModelMixin):
