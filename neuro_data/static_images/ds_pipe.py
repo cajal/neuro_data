@@ -2,7 +2,7 @@ import datajoint as dj
 from neuro_data.utils.config import ConfigBase
 import pandas as pd
 import numpy as np
-from neuro_data.static_images.data_schemas import StaticScan, schema, stimulus, fuse
+from neuro_data.static_images.data_schemas import StaticScan, schema, stimulus, fuse, Preprocessing
 from neuro_data.static_images import data_schemas as data
 
 # # Archived
@@ -55,6 +55,9 @@ dv_stim2_stimulus = dj.create_virtual_module(
     "dv_stim2_stimulus", "dv_stimuli_v2_stimulus"
 )
 
+foundation_stimulus = dj.create_virtual_module("stimulus", "foundation_stimulus")
+virtual_data_schemas = dj.create_virtual_module('virtual_data_schemas', 'neurodata_static')
+fnn = dj.create_virtual_module('fnn', 'foundation_fnn')
 
 class Nn10Mixin:
     @property
@@ -471,6 +474,30 @@ class DvModelConfig(ConfigBase, dj.Lookup):
             )
             assert len(cond_df) == len(resp_df)
             return np.stack(resp_df.response.values)  # (n_images, n_units)
+        
+    class Foundation(dj.Part):
+        definition = """
+        -> master
+        ---
+        -> fnn.Model
+        -> foundation_stimulus.FrameList
+        -> Preprocessing
+        """
+        @property
+        def content(self):
+            return virtual_data_schemas.FoundationInputResponse
+        
+        def responses(self, key, trial_idx, condition_hashes):
+            assert len(trial_idx) == len(condition_hashes)
+            cond_df = pd.DataFrame({"condition_hash": condition_hashes})
+            cond_hashes, rows = (self * virtual_data_schemas.FoundationInputResponse.Input & key & cond_df).fetch('condition_hash', 'row_id')
+            dic = dict(zip(cond_hashes, rows))
+            order = np.array([dic[cond] for cond in condition_hashes])
+            responses = (self * virtual_data_schemas.FoundationInputResponse.ResponseBlock & key).fetch1('responses')
+            return responses[order, :]
+        
+        def unit_keys(self, key):
+            return (self * virtual_data_schemas.FoundationInputResponse.ResponseKeys & key).fetch(as_dict=True, order_by='col_id')
 
 
 @schema
@@ -503,7 +530,8 @@ class DvScanInfo(dj.Computed):
         self.insert1(dict(key, n_units=len(unit_keys)))
 
         self.Unit().insert(
-            [dict(unit_key, response_index=i) for i, unit_key in enumerate(unit_keys)]
+            [dict(unit_key, response_index=i) for i, unit_key in enumerate(unit_keys)],
+            ignore_extra_fields=True
         )
 
     def responses(self, trial_idx, condition_hashes, key=None):

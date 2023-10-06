@@ -480,7 +480,7 @@ class Frame(dj.Computed):
         self.insert1(dict(key, frame=frame))
 
 
-@h5cached('/external/cache/', mode='array', transfer_to_tmp=False,
+@h5cached('/dj-stor01/cache/', mode='array', transfer_to_tmp=False,
           file_format='static{animal_id}-{session}-{scan_idx}-preproc{preproc_id}-spikemethod{spike_method}.h5')
 @schema
 class InputResponse(dj.Computed, FilterMixin):
