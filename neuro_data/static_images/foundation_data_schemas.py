@@ -2,6 +2,7 @@ import datajoint as dj
 import numpy as np
 from tqdm import tqdm
 import pandas as pd
+import warnings
 from foundation.fnn.data import Data
 from foundation.fnn.model import Model, Instance
 from foundation.fnn.train import Objective, Train
@@ -12,7 +13,7 @@ from foundation.recording.trace import Trace
 from neuro_data import logger as log
 from neuro_data.static_images.data_schemas import Preprocessing, SplineCurve, FilterMixin, stimulus, fuse
 
-schema = dj.schema('neurodata_static')
+schema = dj.schema('neurodata_foundation_static')
 
 @schema
 class FoundationInputResponse(dj.Computed, FilterMixin):
@@ -91,7 +92,8 @@ class FoundationInputResponse(dj.Computed, FilterMixin):
             # Compute onset time of each trial (i.e. when pre_blank ends and the image starts), see details of how video.times is computed  
             # at foundation.stimulus.video.FrameList.compute
             stimulus_onset = np.array(video.times[1:])[::2]
-            assert stimulus_onset[0] >= frame_times[burnin_frames], 'First trial onset is within the burn-in period!'
+            if stimulus_onset[0] < frame_times[burnin_frames]:
+                warnings.warn('First trial onset is within the burn-in period!')
             
             # Get interpolated trial responses
             _R = trace_spline(stimulus_onset + sample_point, log=False)
@@ -110,3 +112,12 @@ class FoundationInputResponse(dj.Computed, FilterMixin):
         self.ResponseBlock.insert1(dict(**key, responses=R))
         self.ResponseKeys.insert([dict(**key, **tup, col_id=cid) for cid, tup in enumerate(unit_tups)], ignore_extra_fields=True)
         self.Input.insert([dict(**key, **tup, row_id=rid) for rid, tup in enumerate(input_tups)])
+
+
+    def reorder_responses(self, key, condition_hashes):
+        cond_df = pd.DataFrame({"condition_hash": condition_hashes})
+        cond_hashes, rows = (self.Input & key & cond_df).fetch('condition_hash', 'row_id')
+        dic = dict(zip(cond_hashes, rows))
+        order = np.array([dic[cond] for cond in condition_hashes])
+        responses = (self.ResponseBlock & key).fetch1('responses')
+        return responses[order, :]
