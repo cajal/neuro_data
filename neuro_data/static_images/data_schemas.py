@@ -201,7 +201,8 @@ class ImageNetSplit(dj.Lookup):
 
             # Get number of repeated frames
             assert len(unique_frames) != 0, 'unique_frames == 0'
-            n = int(np.median(unique_frames.fetch('repeats')))  # HACK
+            # n = int(np.median(unique_frames.fetch('repeats')))  # HACK
+            n = 1
             num_oracles = len(unique_frames & 'repeats > {}'.format(n))  # repeats
             if num_oracles == 0:
                 raise ValueError('Could not find repeated frames to use for oracle.')
