@@ -112,12 +112,3 @@ class FoundationInputResponse(dj.Computed, FilterMixin):
         self.ResponseBlock.insert1(dict(**key, responses=R))
         self.ResponseKeys.insert([dict(**key, **tup, col_id=cid) for cid, tup in enumerate(unit_tups)], ignore_extra_fields=True)
         self.Input.insert([dict(**key, **tup, row_id=rid) for rid, tup in enumerate(input_tups)])
-
-
-    def reorder_responses(self, key, condition_hashes):
-        cond_df = pd.DataFrame({"condition_hash": condition_hashes})
-        cond_hashes, rows = (self.Input & key & cond_df).fetch('condition_hash', 'row_id')
-        dic = dict(zip(cond_hashes, rows))
-        order = np.array([dic[cond] for cond in condition_hashes])
-        responses = (self.ResponseBlock & key).fetch1('responses')
-        return responses[order, :]
