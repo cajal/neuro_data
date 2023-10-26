@@ -59,6 +59,8 @@ class FoundationInputResponse(dj.Computed, FilterMixin):
         model_offset = (Data & key).link.compute.unit_offset
         height, width = (Data & key).link.compute.resolution
         resize_id = (Data & key).link.compute.resize_id
+        objective = Objective & (Train & (Instance() & key).link).link
+        assert ('burnin_frames' in (objective.link).fetch1(dj.key)), '"burnin_frames" is not a valid attribute in the {} objective!'.format(objective.fetch1('objective_type'))
         burnin_frames = ((Objective & (Train & (Instance() & key).link).link).link).fetch1('burnin_frames')
         
         # Create stimulus generator
@@ -102,7 +104,8 @@ class FoundationInputResponse(dj.Computed, FilterMixin):
         
         # Get info of input images and neurons
         input_tups = (FrameList.Member * stimulus.Frame & key).fetch('condition_hash', 'image_class', 'image_id', order_by='framelist_index ASC', as_dict=True)
-        unit_tups = (fuse.Activity.Trace * Trace.ScanUnit * (ScanUnitOrder() & (Data & key).link)).fetch(as_dict=True, order_by='unit_id ASC')
+        assert ('trace_filterset_id' in (Data & key).link.fetch1(dj.key)), 'Trace restriction has not been implemented for the {} data type!'.format((Data & key).fetch1('data_type'))
+        unit_tups = (fuse.Activity.Trace * Trace.ScanUnit * (ScanUnitOrder & (Data & key).link)).fetch(as_dict=True, order_by='unit_id ASC')
 
         # Re-order responses by ascending unit_id
         order = np.array([tup['trace_order'] for tup in unit_tups])
