@@ -201,7 +201,8 @@ class ImageNetSplit(dj.Lookup):
 
             # Get number of repeated frames
             assert len(unique_frames) != 0, 'unique_frames == 0'
-            n = int(np.median(unique_frames.fetch('repeats')))  # HACK
+            # n = int(np.median(unique_frames.fetch('repeats')))  # HACK
+            n = 1
             num_oracles = len(unique_frames & 'repeats > {}'.format(n))  # repeats
             if num_oracles == 0:
                 raise ValueError('Could not find repeated frames to use for oracle.')
@@ -480,7 +481,7 @@ class Frame(dj.Computed):
         self.insert1(dict(key, frame=frame))
 
 
-@h5cached('/external/cache/', mode='array', transfer_to_tmp=False,
+@h5cached('/dj-stor01/cache/', mode='array', transfer_to_tmp=False,
           file_format='static{animal_id}-{session}-{scan_idx}-preproc{preproc_id}-spikemethod{spike_method}.h5')
 @schema
 class InputResponse(dj.Computed, FilterMixin):
