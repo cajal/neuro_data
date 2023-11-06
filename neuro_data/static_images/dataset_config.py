@@ -911,6 +911,7 @@ class MultiDataset(dj.Manual):
             StaticMultiDataset.Member.insert(mkey, ignore_extra_fields=True)
             self.insert1(key, ignore_extra_fields=True)
             self.Member().insert(mkey, ignore_extra_fields=True)
+        return key
 
     def fetch_data(self, key, key_order=None):
         ret = OrderedDict()
