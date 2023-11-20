@@ -499,6 +499,32 @@ class DvModelConfig(ConfigBase, dj.Lookup):
         def unit_keys(self, key):
             return (self * nfs.FoundationInputResponse.ResponseKeys & key).fetch(as_dict=True, order_by='col_id')
 
+    class Foundation2(dj.Part):
+        definition = """
+        -> master
+        ---
+        -> fnn.Model
+        -> foundation_stimulus.Frame2List
+        -> Preprocessing
+        """
+
+        @property
+        def content(self):
+            return nfs.FoundationInputResponse2
+
+        def responses(self, key, trial_idx, condition_hashes):
+            assert len(trial_idx) == len(condition_hashes)
+            cond_df = pd.DataFrame({"condition_hash": condition_hashes})
+            cond_hashes, rows = (self * nfs.FoundationInputResponse2.Input & key & cond_df).fetch('condition_hash',
+                                                                                                 'row_id')
+            dic = dict(zip(cond_hashes, rows))
+            order = np.array([dic[cond] for cond in condition_hashes])
+            responses = (self * nfs.FoundationInputResponse2.ResponseBlock & key).fetch1('responses')
+            return responses[order, :]
+
+        def unit_keys(self, key):
+            return (self * nfs.FoundationInputResponse2.ResponseKeys & key).fetch(as_dict=True, order_by='col_id')
+
 
 @schema
 class DvScanInfo(dj.Computed):
