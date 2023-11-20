@@ -243,6 +243,50 @@ class LayerConfig(ConfigBase, dj.Lookup):
             assert unit_df.layer.notnull().all(), "Missing layer for some units!"
             return unit_df.layer.values
 
+    class MinnieUnitStackLayer(dj.Part):
+        from functools import cached_property
+        @cached_property
+        def minnie_data_source(self):
+            return dj.create_virtual_module(
+            "minnie_data_source", "microns_minnie_data_source"
+        )
+
+        @property
+        def definition(self):
+            return """
+            -> master
+            ---
+            -> self.minnie_data_source.UnitLayerBoundaries
+            """
+
+        @property
+        def content(self):
+            return self.minnie_data_source.UnitLayerBoundaries.proj().fetch(as_dict=True)
+
+        def layer(self, unit_keys):
+            unit_layer_df = pd.DataFrame(
+                (
+                    self.minnie_data_source.UnitStackLayer.proj(
+                        ..., session="scan_session"
+                    )
+                    & self
+                    & unit_keys
+                ).fetch(
+                    "animal_id",
+                    "session",
+                    "scan_idx",
+                    "unit_id",
+                    "cortical_layer",
+                    as_dict=True,
+                )
+            )
+            unit_df = pd.DataFrame(unit_keys)
+            unit_df = unit_df.merge(unit_layer_df, how="left", validate="1:1")
+            assert (
+                unit_df.cortical_layer.notnull().all()
+            ), "Missing layer for some units!"
+            return unit_df.cortical_layer.values
+
     class Constant(dj.Part):
         definition = """
         -> master
@@ -289,8 +333,39 @@ class AreaConfig(ConfigBase, dj.Lookup):
             )
             unit_df = pd.DataFrame(unit_keys)
             unit_df = unit_df.merge(unit_area_df, how="left")
-            assert unit_df.area.notnull().all(), "Missing area for some units!"
-            return unit_df.area.values
+            assert unit_df.brain_area.notnull().all(), "Missing area for some units!"
+            return unit_df.brain_area.values
+
+    class MinnieUnitSource(dj.Part):
+        definition = """
+        -> master
+        ---
+        """
+        content = [
+            {},
+        ]
+
+        def area(self, unit_keys):
+            minnie_nda = dj.create_virtual_module("minnie_nda", "microns_minnie_nda")
+            unit_df = pd.DataFrame(unit_keys)
+            unit_area_df = pd.DataFrame(
+                (
+                    (
+                        minnie_nda.UnitSource().proj(..., session="scan_session")
+                        & unit_df
+                    ).fetch(
+                        "animal_id",
+                        "session",
+                        "scan_idx",
+                        "brain_area",
+                        "unit_id",
+                        as_dict=True,
+                    )
+                )
+            )
+            unit_df = unit_df.merge(unit_area_df, how="left", validate="1:1")
+            assert unit_df.brain_area.notnull().all(), "Missing area for some units!"
+            return unit_df.brain_area.values
 
     class Constant(dj.Part):
         definition = """
@@ -457,7 +532,9 @@ class StatsConfig(ConfigBase, dj.Lookup):
                 std=data_std.astype(np.float32),
                 min=data.min().astype(np.float32),
                 max=data.max().astype(np.float32),
-                median=np.median(data).astype(np.float32),  # median isn't computed with correct masking, downstream computation shouldn't use this value.
+                median=np.median(data).astype(
+                    np.float32
+                ),  # median isn't computed with correct masking, downstream computation shouldn't use this value.
             )
             ret["all"] = ret["stimulus.Frame2"]
             return ret
@@ -673,7 +750,12 @@ class DatasetConfig(ConfigBase, dj.Lookup):
             """returns the scan that would be injected into InputResponse, the scan key should match the scan key returned by compute_data"""
             return (
                 StaticScan
-                & self.proj(...,animal_id='dynamic_animal_id', session="dynamic_session", scan_idx="dynamic_scan_idx")
+                & self.proj(
+                    ...,
+                    animal_id="dynamic_animal_id",
+                    session="dynamic_session",
+                    scan_idx="dynamic_scan_idx",
+                )
             ).fetch1("KEY")
 
         @property
@@ -753,6 +835,7 @@ class DatasetConfig(ConfigBase, dj.Lookup):
                 statistics=statistics,
             )
 
+
 @schema
 class DatasetInputResponse(dj.Computed):
     # Inject datasets back to InputResponse table. Mutltiple datasets with the same
@@ -806,12 +889,14 @@ class MultiDataset(dj.Manual):
 
     def fill(self, member_key, description):
         # check if dataset is already in MultiDataset
-        existing_dataset = MultiDataset().aggr(
-            MultiDataset.Member & member_key,
-            n_dataset="count(*)"
-        ) & f'n_dataset={len(DatasetConfig & member_key)}'
+        existing_dataset = (
+            MultiDataset().aggr(MultiDataset.Member & member_key, n_dataset="count(*)")
+            & f"n_dataset={len(DatasetConfig & member_key)}"
+        )
         if existing_dataset:
-            print(f'Dataset already exists in MultiDataset: {existing_dataset.fetch1("KEY")}')
+            print(
+                f'Dataset already exists in MultiDataset: {existing_dataset.fetch1("KEY")}'
+            )
             return
         key = dict(
             group_id=self.next_group_id,
@@ -826,6 +911,7 @@ class MultiDataset(dj.Manual):
             StaticMultiDataset.Member.insert(mkey, ignore_extra_fields=True)
             self.insert1(key, ignore_extra_fields=True)
             self.Member().insert(mkey, ignore_extra_fields=True)
+        return key
 
     def fetch_data(self, key, key_order=None):
         ret = OrderedDict()
