@@ -207,7 +207,7 @@ class FoundationInputResponse2(dj.Computed, FilterMixin):
         R = np.stack(R).T
 
         # Get info of input images and neurons
-        input_tups = (Frame2List.Member * stimulus.Frame & key).fetch('condition_hash', 'image_class', 'image_id',
+        input_tups = (Frame2List.Member * stimulus.Frame2 & key).fetch('condition_hash', 'image_class', 'image_id',
                                                                      order_by='framelist_index ASC', as_dict=True)
         assert ('trace_filterset_id' in (Data & key).link.fetch1(
             dj.key)), 'Trace restriction has not been implemented for the {} data type!'.format(
