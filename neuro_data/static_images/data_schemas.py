@@ -96,7 +96,11 @@ class StaticScan(dj.Computed):
         self.insert(StaticScanCandidate & key, ignore_extra_fields=True)
         pipe = (fuse.ScanDone() & key).fetch1('pipe')
         pipe = dj.create_virtual_module(pipe, 'pipeline_' + pipe)
-        units = (fuse.ScanDone * pipe.ScanSet.Unit * pipe.MaskClassification.Type & key
+        # check segmentation compartment, if not soma, skip MaskClassification
+        if (shared.MaskType.proj(compartment='type') & (pipe.SegmentationTask & key)).fetch1('compartment') != 'soma':
+            units = (fuse.ScanDone * pipe.ScanSet.Unit & key & dict(pipe_version=1))
+        else:
+            units = (fuse.ScanDone * pipe.ScanSet.Unit * pipe.MaskClassification.Type & key
                            & dict(pipe_version=1, type='soma'))
         assert len(units) > 0, 'No units found!'
         self.Unit().insert(units,
@@ -567,10 +571,16 @@ class InputResponse(dj.Computed, FilterMixin):
         ndepth = len(dj.U('z') & (pipe.ScanInfo.Field() & k))
         frame_times = (stimulus.Sync() & key).fetch1('frame_times').squeeze()[::ndepth]
 
-        soma = pipe.MaskClassification.Type() & dict(type='soma')
+        # if segmentation compartment is not soma, skip maskclassification
+        mask_type = (Preprocessing & key).fetch1('mask_type')
+        if mask_type == 'all':
+            compartment_restrict = {}
+        else:
+            assert mask_type in shared.MaskType, f'mask_type {mask_type} not found in shared.MaskType'
+            compartment_restrict = pipe.MaskClassification.Type() & dict(type=mask_type)
 
         spikes = (dj.U('field', 'channel') * pipe.Activity.Trace() * StaticScan.Unit() \
-                  * pipe.ScanSet.UnitInfo() & soma & key)
+                  * pipe.ScanSet.UnitInfo() & compartment_restrict & key)
         traces, ms_delay, trace_keys = spikes.fetch('trace', 'ms_delay', dj.key,
                                                     order_by='animal_id, session, scan_idx, unit_id')
         delay = np.fromiter(ms_delay / 1000, dtype=np.float)
